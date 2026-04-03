@@ -1,0 +1,13 @@
+[
+  {
+    "domain": "cs_lg",
+    "title": "Computer Science — Machine Learning",
+    "arxiv_search_query": "cat:cs.LG"
+  },
+  {
+    "domain": "stat_ml",
+    "title": "Statistics — Machine Learning",
+    "arxiv_search_query": "cat:stat.ML"
+  }
+]
+добавь нужные категоии в файл - какие еще домены на архиве относятся к ML DS AGI NLP CV  
