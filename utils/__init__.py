@@ -4,7 +4,7 @@ from typing import List
 
 
 def utc_today() -> dt.date:
-    return dt.datetime.utcnow().date()
+    return dt.datetime.now(dt.timezone.utc).date()
 
 
 def week_start(d: dt.date) -> dt.date:

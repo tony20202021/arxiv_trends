@@ -1,0 +1,13 @@
+# Имя окружения задаётся через переменную CONDA_ENV в .env
+# и передаётся флагом -n при создании: conda env create -f environment.yml -n "$CONDA_ENV"
+name: conda_arxive_trends
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python
+  - pip
+  - conda-forge::mongodb=5.0
+  - pip:
+      - -r requirements.txt
+      

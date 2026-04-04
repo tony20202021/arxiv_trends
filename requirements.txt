@@ -9,3 +9,15 @@ numpy>=1.24.0
 matplotlib>=3.8.0
 tqdm>=4.66.0
 python-slugify>=8.0.0
+
+# Telegram-бот (фронтенд)
+python-telegram-bot>=21.0.0
+watchfiles>=0.21.0          # авто-перезапуск бота при изменении файлов
+
+# LLM-экстрактор (опционально, включить через USE_LLM_EXTRACTOR=1 в .env)
+openai>=1.30.0
+pydantic>=2.0.0
+
+# Dev / тесты
+pytest>=8.0.0
+pytest-mock>=3.14.0

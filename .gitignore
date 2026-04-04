@@ -1,3 +1,10 @@
+# Project runtime directories
+.outputs/
+.logs/
+
+# Local plan / notes
+.PLAN.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

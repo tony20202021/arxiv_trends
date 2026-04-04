@@ -5,3 +5,7 @@ requires-python = ">=3.10"
 description = "arXiv abstract keyword trends by domain -> weekly counts in MongoDB -> plots"
 readme = "README.md"
 license = {text = "MIT"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["backend", "."]

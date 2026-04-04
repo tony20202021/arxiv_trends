@@ -8,6 +8,40 @@
     "domain": "stat_ml",
     "title": "Statistics — Machine Learning",
     "arxiv_search_query": "cat:stat.ML"
+  },
+  {
+    "domain": "cs_ai",
+    "title": "Computer Science — Artificial Intelligence",
+    "arxiv_search_query": "cat:cs.AI"
+  },
+  {
+    "domain": "cs_cl",
+    "title": "Computer Science — NLP / Computation and Language",
+    "arxiv_search_query": "cat:cs.CL"
+  },
+  {
+    "domain": "cs_cv",
+    "title": "Computer Science — Computer Vision",
+    "arxiv_search_query": "cat:cs.CV"
+  },
+  {
+    "domain": "cs_ne",
+    "title": "Computer Science — Neural and Evolutionary Computing",
+    "arxiv_search_query": "cat:cs.NE"
+  },
+  {
+    "domain": "cs_ro",
+    "title": "Computer Science — Robotics",
+    "arxiv_search_query": "cat:cs.RO"
+  },
+  {
+    "domain": "eess_sp",
+    "title": "Electrical Engineering — Signal Processing",
+    "arxiv_search_query": "cat:eess.SP"
+  },
+  {
+    "domain": "quant_ph",
+    "title": "Quantum Physics (Quantum ML)",
+    "arxiv_search_query": "cat:quant-ph AND (ti:machine+learning OR ti:neural+network OR ti:quantum+computing)"
   }
 ]
-добавь нужные категоии в файл - какие еще домены на архиве относятся к ML DS AGI NLP CV  
