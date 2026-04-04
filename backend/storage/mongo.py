@@ -3,7 +3,7 @@ import datetime as dt
 import logging
 from typing import Dict, List, Optional
 
-from pymongo import MongoClient, ASCENDING, UpdateOne
+from pymongo import MongoClient, ASCENDING, UpdateOne, DeleteMany
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +13,7 @@ class MongoStore:
         self.client = MongoClient(mongo_uri)
         self.db = self.client[db_name]
         self.col = self.db["weekly_keyword_counts"]
+        self.processed = self.db["processed_articles"]
         self._ensure_indexes()
         logger.debug("MongoStore connected: %s / %s", mongo_uri, db_name)
 
@@ -23,6 +24,12 @@ class MongoStore:
             name="uniq_domain_week_keyword",
         )
         self.col.create_index([("domain", ASCENDING), ("week_start", ASCENDING)], name="domain_week")
+        self.processed.create_index(
+            [("arxiv_id", ASCENDING), ("domain", ASCENDING)],
+            unique=True,
+            name="uniq_article_domain",
+        )
+        self.processed.create_index([("domain", ASCENDING), ("week_start", ASCENDING)], name="proc_domain_week")
 
     # ------------------------------------------------------------------ write
 
@@ -127,6 +134,51 @@ class MongoStore:
         """Получить агрегаты по всем доменам."""
         agg_col = self.db["aggregates"]
         return list(agg_col.find({}, {"_id": 0}).sort("domain", ASCENDING))
+
+    # ------------------------------------------------------------------ processed articles
+
+    def get_processed_ids(self, domain: str, week_starts: List[dt.datetime]) -> set[str]:
+        """Вернуть набор arxiv_id уже обработанных статей для домена за указанные недели."""
+        cur = self.processed.find(
+            {"domain": domain, "week_start": {"$in": week_starts}},
+            {"arxiv_id": 1, "_id": 0},
+        )
+        return {d["arxiv_id"] for d in cur}
+
+    def mark_articles_processed(
+        self,
+        domain: str,
+        week_start: dt.datetime,
+        arxiv_ids: List[str],
+        processed_at: dt.datetime,
+    ) -> None:
+        """Пометить статьи как обработанные (upsert)."""
+        if not arxiv_ids:
+            return
+        ops = [
+            UpdateOne(
+                {"arxiv_id": aid, "domain": domain},
+                {"$set": {"arxiv_id": aid, "domain": domain,
+                          "week_start": week_start, "processed_at": processed_at}},
+                upsert=True,
+            )
+            for aid in arxiv_ids
+        ]
+        self.processed.bulk_write(ops, ordered=False)
+
+    def clear_processed(self, domain: str, week_starts: List[dt.datetime]) -> int:
+        """Удалить записи об обработанных статьях (для режима overwrite)."""
+        result = self.processed.delete_many(
+            {"domain": domain, "week_start": {"$in": week_starts}}
+        )
+        return result.deleted_count
+
+    def clear_week_counts(self, domain: str, week_starts: List[dt.datetime]) -> int:
+        """Удалить keyword counts для домена за указанные недели (для режима overwrite)."""
+        result = self.col.delete_many(
+            {"domain": domain, "week_start": {"$in": week_starts}}
+        )
+        return result.deleted_count
 
     # ------------------------------------------------------------------ delete
 

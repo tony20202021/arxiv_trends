@@ -178,19 +178,19 @@ arXiv API (Atom)
 
 ```bash
 # Создать окружение
-./scripts/setup_conda.sh && conda activate conda_arxive_trends
+./sh/setup_conda.sh && conda activate conda_arxive_trends
 
 # MongoDB
-./scripts/start_1_db.sh          # systemctl или ~/mongodb/bin/mongod
+./sh/start_1_db.sh          # systemctl или ~/mongodb/bin/mongod
 
 # Бэкенд (pipeline в цикле)
-./scripts/start_2_backend.sh --interval-hours 6
+./sh/start_2_backend.sh --interval-hours 6
 
 # Фронтенд (Telegram-бот)
-./scripts/start_3_frontend.sh
+./sh/start_3_frontend.sh
 
 # Тесты
-./scripts/run_tests.sh -v        # 85 тестов
+./sh/run_tests.sh -v        # 85 тестов
 ```
 
 ---

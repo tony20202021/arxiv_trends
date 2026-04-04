@@ -16,9 +16,10 @@ class ArxivApiClient:
         base_url: str,
         user_agent: str,
         sleep_sec: float = 0.5,
-        timeout: int = 30,
-        max_retries: int = 3,
+        timeout: int = 60,
+        max_retries: int = 5,
         retry_backoff: float = 2.0,
+        rate_limit_sleep_sec: float = 60.0,
     ):
         self.base_url = base_url.rstrip("/")
         self.headers = {"User-Agent": user_agent}
@@ -26,6 +27,7 @@ class ArxivApiClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_backoff = retry_backoff
+        self.rate_limit_sleep_sec = rate_limit_sleep_sec
 
     def query(
         self,
@@ -36,16 +38,18 @@ class ArxivApiClient:
         sort_order: str = "descending",
         submitted_date_range: Optional[Tuple[str, str]] = None,
     ) -> feedparser.FeedParserDict:
+        if submitted_date_range:
+            lo, hi = submitted_date_range
+            query = f"({search_query}) AND submittedDate:[{lo} TO {hi}]"
+        else:
+            query = search_query
         params = {
-            "search_query": search_query,
+            "search_query": query,
             "start": start,
             "max_results": max_results,
             "sortBy": sort_by,
             "sortOrder": sort_order,
         }
-        if submitted_date_range:
-            lo, hi = submitted_date_range
-            params["submittedDate"] = f"[{lo}+TO+{hi}]"
         url = self.base_url + "?" + urllib.parse.urlencode(params, safe=":+[]")
 
         last_exc: Exception | None = None
@@ -56,9 +60,20 @@ class ArxivApiClient:
                 resp.raise_for_status()
                 time.sleep(self.sleep_sec)
                 return feedparser.parse(resp.text)
+            except requests.HTTPError as exc:
+                last_exc = exc
+                if exc.response is not None and exc.response.status_code == 429:
+                    wait = self.rate_limit_sleep_sec
+                    logger.warning("arXiv API rate limit (attempt %d/%d) — retrying in %.0fs",
+                                   attempt, self.max_retries, wait)
+                else:
+                    wait = self.retry_backoff ** attempt
+                    logger.warning("arXiv API request failed (attempt %d/%d): %s — retrying in %.1fs",
+                                   attempt, self.max_retries, exc, wait)
+                time.sleep(wait)
             except requests.RequestException as exc:
                 last_exc = exc
-                wait = self.retry_backoff ** (attempt - 1) * self.sleep_sec
+                wait = self.retry_backoff ** attempt
                 logger.warning("arXiv API request failed (attempt %d/%d): %s — retrying in %.1fs",
                                attempt, self.max_retries, exc, wait)
                 time.sleep(wait)

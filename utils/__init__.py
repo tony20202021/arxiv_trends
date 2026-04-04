@@ -19,3 +19,15 @@ def iter_week_starts(end_date: dt.date, weeks: int) -> List[dt.date]:
 def to_week_datetime(d: dt.date) -> dt.datetime:
     # Monday 00:00 UTC
     return dt.datetime(d.year, d.month, d.day, tzinfo=dt.timezone.utc)
+
+
+def iter_weeks_between(week_from: dt.date, week_to: dt.date) -> List[dt.date]:
+    """Список понедельников от week_from до week_to включительно."""
+    start = week_start(week_from)
+    end = week_start(week_to)
+    result = []
+    cur = start
+    while cur <= end:
+        result.append(cur)
+        cur += dt.timedelta(weeks=1)
+    return result

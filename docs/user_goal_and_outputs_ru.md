@@ -69,11 +69,11 @@ outputs/plots/<domain_id>/top_growing.png
 
 ```bash
 # Один прогон (скачать данные + построить графики)
-./scripts/start_2_backend.sh --run-once
+./sh/start_2_backend.sh --run-once
 
 # Автоматически каждые 6 часов
-./scripts/start_2_backend.sh --interval-hours 6
+./sh/start_2_backend.sh --interval-hours 6
 
 # Telegram-бот
-./scripts/start_3_frontend.sh
+./sh/start_3_frontend.sh
 ```

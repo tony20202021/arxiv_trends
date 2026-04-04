@@ -24,10 +24,17 @@ def plot_keywords_over_time(pivot: pd.DataFrame, keywords: List[str], title: str
     if len(pivot.index) > HISTORY_WEEKS:
         pivot = pivot.iloc[-HISTORY_WEEKS:]
 
+    _markers = ["o", "s", "^", "D", "v", "P", "*", "X", "h", "<", ">", "p", "H", "+", "x"]
+
     fig = plt.figure()
-    for kw in keywords:
+    for i, kw in enumerate(keywords):
         if kw in pivot.columns:
-            plt.plot(pivot.index, pivot[kw].values, label=kw)
+            plt.plot(
+                pivot.index, pivot[kw].values,
+                label=kw,
+                marker=_markers[i % len(_markers)],
+                markersize=5,
+            )
 
     plt.title(title)
     plt.xlabel("Week")

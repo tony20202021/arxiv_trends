@@ -4,7 +4,7 @@
 
 ```bash
 # 1. Создать conda-окружение
-./scripts/setup_conda.sh
+./sh/setup_conda.sh
 conda activate conda_arxive_trends
 
 # 2. Настроить переменные окружения
@@ -12,13 +12,13 @@ cp .env.example .env
 nano .env   # заполнить MONGO_URI, TELEGRAM_BOT_TOKEN и др.
 
 # 3. Запустить MongoDB
-./scripts/start_1_db.sh
+./sh/start_1_db.sh
 
 # 4. Один прогон pipeline (скачать данные + построить графики)
-./scripts/start_2_backend.sh --run-once
+./sh/start_2_backend.sh --run-once
 
 # 5. Запустить Telegram-бот
-./scripts/start_3_frontend.sh
+./sh/start_3_frontend.sh
 ```
 
 ---
@@ -28,22 +28,22 @@ nano .env   # заполнить MONGO_URI, TELEGRAM_BOT_TOKEN и др.
 ### Запустить всё
 
 ```bash
-./scripts/start_1_db.sh
-./scripts/start_2_backend.sh --interval-hours 6   # планировщик повторяет каждые 6 часов
-./scripts/start_3_frontend.sh                      # Telegram-бот (в отдельном терминале)
+./sh/start_1_db.sh
+./sh/start_2_backend.sh --interval-hours 6   # планировщик повторяет каждые 6 часов
+./sh/start_3_frontend.sh                      # Telegram-бот (в отдельном терминале)
 ```
 
 ### Запустить с auto-reload бота (при изменении кода)
 
 ```bash
-./scripts/start_3_frontend_auto_reload.sh
+./sh/start_3_frontend_auto_reload.sh
 ```
 
 ### Один прогон pipeline вручную
 
 ```bash
 # Через скрипт
-./scripts/start_2_backend.sh --run-once
+./sh/start_2_backend.sh --run-once
 
 # Напрямую через Python (из корня проекта)
 PYTHONPATH=backend:. python backend/scripts/run_pipeline.py \
@@ -79,7 +79,7 @@ PYTHONPATH=backend:. python backend/scripts/run_pipeline.py \
 
 ```bash
 # Все тесты
-./scripts/run_tests.sh -v
+./sh/run_tests.sh -v
 
 # Конкретный модуль
 python -m pytest tests/test_api_client.py -v

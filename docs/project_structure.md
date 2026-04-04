@@ -56,8 +56,13 @@ arxiv_trends/
 │           ├── top_popular.png
 │           └── top_growing.png
 │
-├── scripts/                             # Скрипты запуска и утилиты
+├── scripts/                             # Python-утилиты и CLI
 │   ├── run_scheduler.py                 # CLI: loop + sleep + graceful shutdown
+│   ├── run_pipeline.py                  # CLI: пайплайн за произвольный диапазон недель
+│   ├── check_db.py                      # Диагностика БД (покрытие, топ-слова)
+│   └── migrate_normalize_keywords.py    # Миграция: нормализация ключевых слов в БД
+│
+├── sh/                                  # Bash-скрипты запуска
 │   ├── setup_conda.sh                   # Создание conda-окружения
 │   ├── setup_systemd.sh                 # Генерация systemd-сервисов
 │   ├── run_tests.sh                     # Запуск тестов

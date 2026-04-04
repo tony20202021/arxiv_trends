@@ -23,7 +23,7 @@ cp .env.example .env
 nano .env
 
 # Установить и включить сервисы
-./scripts/setup_systemd.sh
+./sh/setup_systemd.sh
 
 # Запустить
 sudo systemctl start arxiv-db
@@ -37,7 +37,7 @@ sudo systemctl status arxiv-db arxiv-backend arxiv-frontend
 ### Удаление сервисов
 
 ```bash
-./scripts/setup_systemd.sh --remove
+./sh/setup_systemd.sh --remove
 ```
 
 ---
@@ -97,7 +97,7 @@ sudo systemctl status arxiv-backend
 sudo journalctl -u arxiv-backend -n 100 --no-pager
 
 # Запустить скрипт вручную для диагностики
-bash scripts/start_2_backend.sh --run-once --log-level DEBUG
+bash sh/start_2_backend.sh --run-once --log-level DEBUG
 ```
 
 ### MongoDB не запускается
@@ -136,6 +136,6 @@ ps aux | grep -E "mongod|run_scheduler|bot\.py" | grep -v grep
 ### Переустановить сервисы после изменения .env или пути к проекту
 
 ```bash
-./scripts/setup_systemd.sh --remove
-./scripts/setup_systemd.sh
+./sh/setup_systemd.sh --remove
+./sh/setup_systemd.sh
 ```

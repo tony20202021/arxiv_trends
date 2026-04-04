@@ -61,7 +61,7 @@ Type=forking
 User=$RUN_USER
 WorkingDirectory=$PROJECT_DIR
 Environment="PATH=$PATH_ENV"
-ExecStart=/bin/bash $PROJECT_DIR/scripts/start_1_db.sh
+ExecStart=/bin/bash $PROJECT_DIR/sh/start_1_db.sh
 Restart=on-failure
 RestartSec=15
 
@@ -82,7 +82,7 @@ Type=simple
 User=$RUN_USER
 WorkingDirectory=$PROJECT_DIR
 Environment="PATH=$PATH_ENV"
-ExecStart=/bin/bash $PROJECT_DIR/scripts/start_2_backend.sh --interval-hours 6
+ExecStart=/bin/bash $PROJECT_DIR/sh/start_2_backend.sh --interval-hours 6
 Restart=on-failure
 RestartSec=30
 
@@ -103,7 +103,7 @@ Type=simple
 User=$RUN_USER
 WorkingDirectory=$PROJECT_DIR
 Environment="PATH=$PATH_ENV"
-ExecStart=/bin/bash $PROJECT_DIR/scripts/start_3_frontend.sh
+ExecStart=/bin/bash $PROJECT_DIR/sh/start_3_frontend.sh
 Restart=on-failure
 RestartSec=10
 

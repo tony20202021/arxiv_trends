@@ -1,12 +1,13 @@
 """Все константы пайплайна (централизованно)."""
 
 HISTORY_WEEKS = 52          # 1 год по неделям
-TOP_N = 10                  # топ-N для графиков
+TOP_N = 5                  # топ-N для графиков
 GROWTH_WINDOW_WEEKS = 10    # окно роста (в неделях)
 
-MAX_RESULTS_PER_DOMAIN = 2000   # защита от перегруза
-ARXIV_PAGE_SIZE = 200           # размер страницы arXiv API
-REQUEST_SLEEP_SEC = 0.5         # вежливый rate-limit
+ARXIV_PAGE_SIZE = 200           # размер страницы arXiv API (один запрос к API)
+ARXIV_BATCH_SIZE = 50           # статей обрабатывать за один батч перед паузой
+ARXIV_BATCH_SLEEP_SEC = 2.0     # пауза между батчами (сек)
+REQUEST_SLEEP_SEC = 0.5         # пауза между запросами к API
 
 # --- Извлечение ключевых слов ---
 TOKEN_PATTERN = r"[a-zA-Z][a-zA-Z0-9\-]{2,}"  # слова 3+ символов, допускает дефис
@@ -27,5 +28,16 @@ STOPWORDS_EN: frozenset = frozenset({
     "problem", "task", "tasks", "work", "existing", "state", "art",
     "performance", "experiments", "experimental", "evaluation", "achieve",
     "achieves", "significantly", "demonstrate", "demonstrates",
+    # незначимые для тематического анализа
+    "across", "under", "methods", "introduce", "introduction",
+    "without", "between", "different", "multiple", "various",
+    "among", "within", "along", "number", "three", "four", "five",
+    "however", "therefore", "furthermore", "moreover", "additionally",
+    "recent", "previous", "often", "further", "need",
+    # служебные глаголы и фразы
+    "remain", "address", "provide", "enabling", "finding", "only", "yet",
+    "study", "setting", "time", "achieve", "improve", "consider",
+    # незначимые для тематического анализа (из анализа топ-20)
+    "enable", "real", "multi", "fine", "non", "sample",
 })
 

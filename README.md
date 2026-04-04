@@ -19,7 +19,7 @@ arXiv API → HTML парсинг → извлечение слов → MongoDB 
 
 ### 1. Создать conda-окружение
 ```bash
-./scripts/setup_conda.sh
+./sh/setup_conda.sh
 conda activate conda_arxive_trends
 ```
 
@@ -31,24 +31,24 @@ cp .env.example .env
 
 ### 3. Запустить MongoDB
 ```bash
-./scripts/start_1_db.sh
+./sh/start_1_db.sh
 ```
 
 ### 4. Один прогон pipeline (скачать данные + построить графики)
 ```bash
-./scripts/start_2_backend.sh --run-once
+./sh/start_2_backend.sh --run-once
 # или напрямую:
 python backend/scripts/run_pipeline.py --out outputs --log-level INFO
 ```
 
 ### 5. Планировщик (повторять каждые 6 часов)
 ```bash
-./scripts/start_2_backend.sh --interval-hours 6
+./sh/start_2_backend.sh --interval-hours 6
 ```
 
 ### 6. Telegram-бот
 ```bash
-./scripts/start_3_frontend.sh
+./sh/start_3_frontend.sh
 ```
 
 ## Команды Telegram-бота
@@ -61,7 +61,7 @@ python backend/scripts/run_pipeline.py --out outputs --log-level INFO
 
 ## Тесты
 ```bash
-./scripts/run_tests.sh -v
+./sh/run_tests.sh -v
 # или:
 python -m pytest tests/ -v
 ```
