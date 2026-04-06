@@ -69,20 +69,28 @@ class TestExtractKeywordsLlm:
 
 
 class TestExtractorFallback:
-    """Проверяем что extractor.py падает на regex когда LLM возвращает None."""
+    """v1 (extractor.py) всегда использует regex; LLM живёт в registry._v2."""
 
-    def test_uses_regex_when_llm_returns_none(self):
-        with patch("keywords.llm_extractor.extract_keywords_llm", return_value=None):
-            from keywords.extractor import extract_keywords_from_abstract
-            result = extract_keywords_from_abstract("transformer architecture attention mechanism")
+    def test_v1_always_uses_regex(self):
+        """extract_keywords_from_abstract — алиас для _regex_extract, LLM не вызывается."""
+        from keywords.extractor import extract_keywords_from_abstract
+        result = extract_keywords_from_abstract("transformer architecture attention mechanism")
         assert isinstance(result, dict)
         assert len(result) > 0
+        assert "transformer" in result or "architecture" in result
 
-    def test_uses_llm_result_when_available(self):
+    def test_registry_v2_uses_llm(self):
+        """registry._v2 вызывает extract_keywords_llm и возвращает его результат."""
         llm_result = {"transformer": 1, "attention": 1, "architecture": 1}
         with patch("keywords.llm_extractor.extract_keywords_llm", return_value=llm_result):
-            from keywords import extractor
-            import importlib
-            importlib.reload(extractor)
-            result = extractor.extract_keywords_from_abstract("any text")
+            from keywords import registry
+            result = registry._v2("any text")
         assert result == llm_result
+
+    def test_registry_v2_raises_when_llm_unavailable(self):
+        """registry._v2 бросает RuntimeError если LLM вернул None."""
+        with patch("keywords.llm_extractor.extract_keywords_llm", return_value=None):
+            from keywords import registry
+            import pytest
+            with pytest.raises(RuntimeError, match="LLM недоступен"):
+                registry._v2("any text")

@@ -1,5 +1,6 @@
 #!/bin/bash
-# Запуск Telegram-бота (фронтенд)
+# Запуск Telegram-бота с авто-перезапуском при изменении файлов.
+# При сохранении любого .py файла в frontend/ или config/ бот перезапускается.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -14,5 +15,10 @@ if command -v conda &>/dev/null && conda info --envs | grep -q "^$CONDA_ENV"; th
     conda activate "$CONDA_ENV"
 fi
 
-echo "Запуск Telegram-бота..."
-exec python frontend/telegram_bot/bot.py
+echo "Telegram-бот запущен с авто-перезапуском (слежу за frontend/ и config/)."
+echo "Ctrl+C для остановки."
+
+exec python -m watchfiles \
+    "python frontend/telegram_bot/bot.py" \
+    frontend/telegram_bot \
+    config

@@ -1,13 +1,18 @@
 """Все константы пайплайна (централизованно)."""
 
 HISTORY_WEEKS = 52          # 1 год по неделям
+
+# Версия экстрактора: см. backend/keywords/registry.py (ACTIVE_EXTRACTOR_KEY)
+# В БД хранится как целое число (ACTIVE_EXTRACTOR.db_id).
 TOP_N = 5                  # топ-N для графиков
 GROWTH_WINDOW_WEEKS = 10    # окно роста (в неделях)
 
-ARXIV_PAGE_SIZE = 200           # размер страницы arXiv API (один запрос к API)
+ARXIV_PAGE_SIZE = 200           # размер страницы arXiv API (один запрос к API); макс. 2000
+ARXIV_MAX_OFFSET = 30000        # максимальный start по документации arXiv
+ARXIV_OFFSET_LIMIT = 9800       # фактический лимит start (arXiv возвращает 500 при start≥10000)
 ARXIV_BATCH_SIZE = 50           # статей обрабатывать за один батч перед паузой
-ARXIV_BATCH_SLEEP_SEC = 2.0     # пауза между батчами (сек)
-REQUEST_SLEEP_SEC = 0.5         # пауза между запросами к API
+ARXIV_BATCH_SLEEP_SEC = 2.0     # пауза между батчами обработки (сек)
+REQUEST_SLEEP_SEC = 3.0         # пауза между запросами к API (рекомендация arXiv — 3 сек)
 
 # --- Извлечение ключевых слов ---
 TOKEN_PATTERN = r"[a-zA-Z][a-zA-Z0-9\-]{2,}"  # слова 3+ символов, допускает дефис

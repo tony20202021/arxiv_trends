@@ -14,8 +14,11 @@ nano .env   # заполнить MONGO_URI, TELEGRAM_BOT_TOKEN и др.
 # 3. Запустить MongoDB
 ./sh/start_1_db.sh
 
-# 4. Один прогон pipeline (скачать данные + построить графики)
-./sh/start_2_backend.sh --run-once
+# 4. Заполнить данные (один прогон каждого сервиса)
+python scripts/1_fetch_abstracts.py --from 2025-04-01 --to 2026-04-05
+python scripts/2_extract_keywords.py --from 2025-04-01 --to 2026-04-05
+python scripts/3_recompute_aggregates.py
+python scripts/4_render_plots.py
 
 # 5. Запустить Telegram-бот
 ./sh/start_3_frontend.sh
@@ -25,31 +28,18 @@ nano .env   # заполнить MONGO_URI, TELEGRAM_BOT_TOKEN и др.
 
 ## Ежедневная эксплуатация
 
-### Запустить всё
+### Запустить всё (в отдельных терминалах)
 
 ```bash
 ./sh/start_1_db.sh
-./sh/start_2_backend.sh --interval-hours 6   # планировщик повторяет каждые 6 часов
-./sh/start_3_frontend.sh                      # Telegram-бот (в отдельном терминале)
+./sh/start_2_1_fetch.sh        # скачивание статей — раз в сутки
+./sh/start_2_2_extract.sh      # ключевые слова — раз в час
+./sh/start_2_3_aggregates_plots.sh   # агрегаты + графики — раз в час
+./sh/start_3_frontend.sh   # Telegram-бот
 ```
 
-### Запустить с auto-reload бота (при изменении кода)
-
-```bash
-./sh/start_3_frontend_auto_reload.sh
-```
-
-### Один прогон pipeline вручную
-
-```bash
-# Через скрипт
-./sh/start_2_backend.sh --run-once
-
-# Напрямую через Python (из корня проекта)
-PYTHONPATH=backend:. python backend/scripts/run_pipeline.py \
-  --out outputs \
-  --log-level INFO
-```
+Все скрипты бэкенда используют watchfiles: при изменении файлов в `backend/` или `config/`
+процесс перезапускается автоматически.
 
 ---
 
@@ -59,17 +49,21 @@ PYTHONPATH=backend:. python backend/scripts/run_pipeline.py \
 |---|---|
 | `setup_conda.sh` | Создать conda-окружение `conda_arxive_trends` |
 | `start_1_db.sh` | Запустить MongoDB |
-| `start_2_backend.sh` | Запустить pipeline-планировщик |
-| `start_3_frontend.sh` | Запустить Telegram-бот |
-| `start_3_frontend_auto_reload.sh` | Telegram-бот с авто-перезапуском при изменении файлов |
+| `start_2_1_fetch.sh` | Бэкенд 1: скачивание статей из arXiv (раз в сутки) |
+| `start_2_2_extract.sh` | Бэкенд 2: извлечение ключевых слов (раз в час) |
+| `start_2_3_aggregates_plots.sh` | Бэкенд 3+4: агрегаты и графики (раз в час) |
+| `start_3_frontend.sh` | Telegram-бот с авто-перезапуском |
 | `run_tests.sh` | Запустить тесты |
 
-### Аргументы start_2_backend.sh
+### Аргументы run_scheduler.py (вызывается через sh-скрипты)
 
 ```
---interval-hours N   Интервал между прогонами (по умолчанию: 6)
+--step 1|2|3        Шаг pipeline
+--interval-hours N   Интервал между прогонами (по умолчанию зависит от скрипта)
+--from YYYY-MM-DD    Начало диапазона дат (по умолчанию: год назад)
+--to YYYY-MM-DD      Конец диапазона дат (по умолчанию: сегодня)
 --run-once           Один прогон и выход
---out DIR            Директория для графиков (по умолчанию: outputs)
+--out DIR            Директория для графиков (по умолчанию: .outputs)
 --log-level LEVEL    DEBUG / INFO / WARNING / ERROR (по умолчанию: INFO)
 ```
 
@@ -105,7 +99,7 @@ python -m pytest tests/ --cov=backend/src --cov-report=term-missing
 | `TELEGRAM_BOT_TOKEN` | да (бот) | `123456:ABC-...` |
 | `ARXIV_API_URL` | нет | `https://export.arxiv.org/api/query` |
 | `HTTP_USER_AGENT` | нет | `arxiv-trends-bot/0.1` |
-| `OUTPUTS_DIR` | нет | `outputs` |
+| `OUTPUTS_DIR` | нет | `.outputs` |
 | `USE_LLM_EXTRACTOR` | нет | `0` или `1` |
 | `OPENAI_LLM_URL` | если LLM | `https://api.openai.com/v1` |
 | `OPENAI_LLM_API_KEY` | если LLM | `sk-...` |

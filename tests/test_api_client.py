@@ -14,11 +14,13 @@ FAKE_ATOM = """<?xml version="1.0" encoding="utf-8"?>
     <id>http://arxiv.org/abs/2401.00001v1</id>
     <title>Test Paper One</title>
     <published>2024-01-01T00:00:00Z</published>
+    <updated>2024-01-01T00:00:00Z</updated>
   </entry>
   <entry>
     <id>http://arxiv.org/abs/2401.00002v1</id>
     <title>Test Paper\nTwo</title>
     <published>2024-01-02T00:00:00Z</published>
+    <updated>2024-01-02T00:00:00Z</updated>
   </entry>
 </feed>"""
 

@@ -7,7 +7,9 @@ Systemd позволяет автоматически запускать все 
 
 **Порядок зависимостей:**
 ```
-arxiv-db  →  arxiv-backend  →  arxiv-frontend
+arxiv-db  →  arxiv-backend-1  →  arxiv-frontend
+              arxiv-backend-2
+              arxiv-backend-3
 ```
 
 ---
@@ -28,10 +30,10 @@ nano .env
 # Запустить
 sudo systemctl start arxiv-db
 sleep 5
-sudo systemctl start arxiv-backend arxiv-frontend
+sudo systemctl start arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend
 
 # Проверить статус
-sudo systemctl status arxiv-db arxiv-backend arxiv-frontend
+sudo systemctl status arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend
 ```
 
 ### Удаление сервисов
@@ -47,21 +49,21 @@ sudo systemctl status arxiv-db arxiv-backend arxiv-frontend
 ```bash
 # Запуск
 sudo systemctl start arxiv-db
-sudo systemctl start arxiv-backend
+sudo systemctl start arxiv-backend-1 arxiv-backend-2 arxiv-backend-3
 sudo systemctl start arxiv-frontend
 
 # Остановка
 sudo systemctl stop arxiv-frontend
-sudo systemctl stop arxiv-backend
+sudo systemctl stop arxiv-backend-1 arxiv-backend-2 arxiv-backend-3
 sudo systemctl stop arxiv-db
 
 # Перезапуск (например, после обновления кода)
-sudo systemctl restart arxiv-backend
+sudo systemctl restart arxiv-backend-1 arxiv-backend-2 arxiv-backend-3
 sudo systemctl restart arxiv-frontend
 
 # Включить / отключить автозапуск при перезагрузке
-sudo systemctl enable arxiv-db arxiv-backend arxiv-frontend
-sudo systemctl disable arxiv-db arxiv-backend arxiv-frontend
+sudo systemctl enable arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend
+sudo systemctl disable arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend
 ```
 
 ---
@@ -70,17 +72,19 @@ sudo systemctl disable arxiv-db arxiv-backend arxiv-frontend
 
 ```bash
 # Последние 50 строк
-sudo journalctl -u arxiv-backend -n 50 --no-pager
+sudo journalctl -u arxiv-backend-1 -n 50 --no-pager
+sudo journalctl -u arxiv-backend-2 -n 50 --no-pager
+sudo journalctl -u arxiv-backend-3 -n 50 --no-pager
 sudo journalctl -u arxiv-frontend -n 50 --no-pager
 
 # Следить в реальном времени
 sudo journalctl -u arxiv-frontend -f
 
 # Логи за последний час
-sudo journalctl -u arxiv-backend --since "1 hour ago"
+sudo journalctl -u arxiv-backend-2 --since "1 hour ago"
 
-# Все три сервиса вместе
-sudo journalctl -u arxiv-db -u arxiv-backend -u arxiv-frontend -f
+# Все бэкенд-сервисы вместе
+sudo journalctl -u arxiv-db -u arxiv-backend-1 -u arxiv-backend-2 -u arxiv-backend-3 -f
 ```
 
 ---
@@ -91,13 +95,13 @@ sudo journalctl -u arxiv-db -u arxiv-backend -u arxiv-frontend -f
 
 ```bash
 # Посмотреть статус и ошибку
-sudo systemctl status arxiv-backend
+sudo systemctl status arxiv-backend-1
 
 # Полные логи
-sudo journalctl -u arxiv-backend -n 100 --no-pager
+sudo journalctl -u arxiv-backend-1 -n 100 --no-pager
 
 # Запустить скрипт вручную для диагностики
-bash sh/start_2_backend.sh --run-once --log-level DEBUG
+bash sh/start_2_1_fetch.sh --run-once --log-level DEBUG
 ```
 
 ### MongoDB не запускается

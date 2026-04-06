@@ -24,29 +24,66 @@ def _aggregate_top(col, match: dict, top_n: int) -> list[tuple[str, int]]:
 
 
 def db_coverage(mongo_uri: str, mongo_db: str) -> list[dict]:
-    """Возвращает список доменов с диапазоном недель и суммарными данными."""
+    """Возвращает статистику по доменам из обеих таблиц: articles и weekly_keyword_counts."""
     store = MongoStore(mongo_uri, mongo_db)
-    domains = store.get_all_domains()
+    domains = sorted(set(
+        store.get_all_domains()
+        + list(store.articles.distinct("domain"))
+    ))
     result = []
-    for domain in sorted(domains):
-        docs = list(store.col.find(
+    for domain in domains:
+        # --- articles ---
+        art_pipeline = [
+            {"$match": {"domain": domain}},
+            {"$group": {
+                "_id": None,
+                "total": {"$sum": 1},
+                "with_keywords": {"$sum": {"$cond": [{"$ne": ["$keywords", None]}, 1, 0]}},
+                "week_from": {"$min": "$week_start"},
+                "week_to":   {"$max": "$week_start"},
+            }},
+        ]
+        art_rows = list(store.articles.aggregate(art_pipeline))
+        if art_rows:
+            ar = art_rows[0]
+            wf = ar["week_from"].date()
+            wt = ar["week_to"].date()
+            # количество недель = (последний понедельник - первый понедельник) / 7 + 1
+            art_weeks = (wt - wf).days // 7 + 1
+            articles_stat = {
+                "total":         ar["total"],
+                "with_keywords": ar["with_keywords"],
+                "week_from":     wf,
+                "week_to":       wt,
+                "weeks":         art_weeks,
+            }
+        else:
+            articles_stat = {"total": 0, "with_keywords": 0, "week_from": None, "week_to": None, "weeks": 0}
+
+        # --- weekly_keyword_counts ---
+        kw_docs = list(store.col.find(
             {"domain": domain},
             {"week_start": 1, "count": 1, "_id": 0},
         ))
-        if not docs:
-            result.append({"domain": domain, "weeks": 0})
-            continue
-        weeks: dict[dt.datetime, int] = {}
-        for d in docs:
-            ws = d["week_start"]
-            weeks[ws] = weeks.get(ws, 0) + d.get("count", 0)
-        sorted_weeks = sorted(weeks)
+        if kw_docs:
+            weeks: dict[dt.datetime, int] = {}
+            for d in kw_docs:
+                ws = d["week_start"]
+                weeks[ws] = weeks.get(ws, 0) + d.get("count", 0)
+            sorted_weeks = sorted(weeks)
+            kw_stat = {
+                "weeks":          len(sorted_weeks),
+                "week_from":      sorted_weeks[0].date(),
+                "week_to":        sorted_weeks[-1].date(),
+                "total_mentions": sum(weeks.values()),
+            }
+        else:
+            kw_stat = {"weeks": 0, "week_from": None, "week_to": None, "total_mentions": 0}
+
         result.append({
-            "domain":     domain,
-            "week_from":  sorted_weeks[0].date(),
-            "week_to":    sorted_weeks[-1].date(),
-            "weeks":      len(sorted_weeks),
-            "total_mentions": sum(weeks.values()),
+            "domain":   domain,
+            "articles": articles_stat,
+            "keywords": kw_stat,
         })
     return result
 
@@ -87,16 +124,150 @@ def print_top_keywords(mongo_uri: str, mongo_db: str, top_n: int = 10) -> None:
         print()
 
 
+def latest_records(mongo_uri: str, mongo_db: str) -> dict:
+    """Последняя запись в каждой коллекции: articles, weekly_keyword_counts, aggregates."""
+    store = MongoStore(mongo_uri, mongo_db)
+    result: dict = {}
+
+    # articles — последняя по fetched_at
+    art = store.articles.find_one(
+        {"fetched_at": {"$exists": True}},
+        {"_id": 0, "arxiv_id": 1, "domain": 1, "title": 1, "published": 1, "fetched_at": 1, "week_start": 1},
+        sort=[("fetched_at", -1)],
+    )
+    result["articles"] = art
+
+    # weekly_keyword_counts — последняя неделя
+    kw = store.col.find_one(
+        {},
+        {"_id": 0, "domain": 1, "week_start": 1, "keyword": 1, "count": 1},
+        sort=[("week_start", -1)],
+    )
+    result["weekly_keyword_counts"] = kw
+
+    # aggregates — последняя по computed_at
+    agg_col = store.db["aggregates"]
+    agg = agg_col.find_one(
+        {},
+        {"_id": 0, "domain": 1, "computed_at": 1, "top_popular": 1, "top_growing": 1},
+        sort=[("computed_at", -1)],
+    )
+    result["aggregates"] = agg
+
+    return result
+
+
+def print_latest(mongo_uri: str, mongo_db: str) -> None:
+    data = latest_records(mongo_uri, mongo_db)
+
+    print(f"\n{'=== articles (последняя запись) ':=<60}")
+    art = data["articles"]
+    if art:
+        print(f"  arxiv_id  : {art.get('arxiv_id')}")
+        print(f"  domain    : {art.get('domain')}")
+        print(f"  title     : {str(art.get('title', ''))[:80]}")
+        print(f"  published : {art.get('published')}")
+        ws = art.get("week_start")
+        print(f"  week_start: {ws.date() if ws else '—'}")
+        fa = art.get("fetched_at")
+        print(f"  fetched_at: {fa.strftime('%Y-%m-%d %H:%M:%S') if fa else '—'}")
+    else:
+        print("  — нет данных")
+
+    print(f"\n{'=== weekly_keyword_counts (последняя неделя) ':=<60}")
+    kw = data["weekly_keyword_counts"]
+    if kw:
+        ws = kw.get("week_start")
+        print(f"  domain    : {kw.get('domain')}")
+        print(f"  week_start: {ws.date() if ws else '—'}")
+        print(f"  keyword   : {kw.get('keyword')}  (count={kw.get('count')})")
+    else:
+        print("  — нет данных")
+
+    print(f"\n{'=== aggregates (последнее вычисление) ':=<60}")
+    agg = data["aggregates"]
+    if agg:
+        ca = agg.get("computed_at")
+        print(f"  domain      : {agg.get('domain')}")
+        print(f"  computed_at : {ca.strftime('%Y-%m-%d %H:%M:%S') if ca else '—'}")
+        print(f"  top_popular : {agg.get('top_popular', [])[:5]}")
+        print(f"  top_growing : {agg.get('top_growing', [])[:5]}")
+    else:
+        print("  — нет данных")
+
+
+def search_articles(mongo_uri: str, mongo_db: str, keyword: str, limit: int = 10) -> list[dict]:
+    """Поиск статей содержащих ключевое слово (полнотекстовый поиск по abstract + title).
+
+    Использует MongoDB text index. Для поиска фразы: keyword='\"neural network\"'.
+    """
+    store = MongoStore(mongo_uri, mongo_db)
+    results = list(store.articles.find(
+        {"$text": {"$search": keyword}},
+        {"_id": 0, "arxiv_id": 1, "domain": 1, "title": 1, "published": 1, "week_start": 1,
+         "abstract": 1, "score": {"$meta": "textScore"}},
+        sort=[("score", {"$meta": "textScore"})],
+        limit=limit,
+    ))
+    return results
+
+
+def print_search(mongo_uri: str, mongo_db: str, keyword: str, limit: int = 10) -> None:
+    results = search_articles(mongo_uri, mongo_db, keyword, limit)
+    print(f"\nПоиск по ключевому слову: «{keyword}»  (топ {limit})")
+    if not results:
+        print("  — ничего не найдено")
+        return
+    for i, art in enumerate(results, 1):
+        ws = art.get("week_start")
+        abstract = (art.get("abstract") or "").replace("\n", " ")
+        # Выделим контекст вокруг слова
+        idx = abstract.lower().find(keyword.lower())
+        if idx >= 0:
+            start = max(0, idx - 60)
+            end = min(len(abstract), idx + 60 + len(keyword))
+            snippet = ("…" if start > 0 else "") + abstract[start:end] + ("…" if end < len(abstract) else "")
+        else:
+            snippet = abstract[:120] + ("…" if len(abstract) > 120 else "")
+        print(f"\n  {i}. [{art.get('domain')}] {art.get('arxiv_id')}  ({art.get('published', '')[:10]})")
+        print(f"     {str(art.get('title', ''))[:90]}")
+        print(f"     «{snippet}»")
+
+
+def _week_range(monday: dt.date) -> str:
+    """'2026-03-16 – 2026-03-22'"""
+    sunday = monday + dt.timedelta(days=6)
+    return f"{monday} – {sunday}"
+
+
 def print_coverage(mongo_uri: str, mongo_db: str) -> None:
     rows = db_coverage(mongo_uri, mongo_db)
     if not rows:
         print("БД пуста.")
         return
-    print(f"{'Домен':<14} {'С':<12} {'По':<12} {'Недель':>7} {'Упоминаний':>12}")
-    print("-" * 55)
+
+    w = 13  # ширина колонки даты
+
+    # --- articles ---
+    print(f"\n{'=== articles (абстракты) ':=<80}")
+    print(f"{'Домен':<14} {'Первая неделя':<{w}} {'Последняя неделя':<{w}} {'Недель':>7} {'Статей':>8} {'С ключ.словами':>16}")
+    print("-" * (14 + w * 2 + 33))
     for r in rows:
-        if r["weeks"] == 0:
-            print(f"{r['domain']:<14}  — нет данных")
+        a = r["articles"]
+        if a["total"] == 0:
+            print(f"  {r['domain']:<14}  — нет данных")
         else:
-            print(f"{r['domain']:<14} {str(r['week_from']):<12} {str(r['week_to']):<12} "
-                  f"{r['weeks']:>7} {r['total_mentions']:>12,}")
+            print(f"  {r['domain']:<14} {str(a['week_from']):<{w}} {str(a['week_to']):<{w}} "
+                  f"{a['weeks']:>7} {a['total']:>8,} {a['with_keywords']:>16,}")
+
+    # --- weekly_keyword_counts ---
+    print(f"\n{'=== weekly_keyword_counts (подсчёты по неделям) ':=<70}")
+    print(f"{'Домен':<14} {'Первая неделя':<{w}} {'Последняя неделя':<{w}} {'Недель':>8} {'Вхождений':>12}")
+    print("-" * (14 + w * 2 + 22))
+    for r in rows:
+        k = r["keywords"]
+        if k["weeks"] == 0:
+            print(f"  {r['domain']:<14}  — нет данных")
+        else:
+            print(f"  {r['domain']:<14} {str(k['week_from']):<{w}} {str(k['week_to']):<{w}} "
+                  f"{k['weeks']:>8} {k['total_mentions']:>12,}")

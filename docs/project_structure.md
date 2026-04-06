@@ -6,7 +6,7 @@ arxiv_trends/
 ├── backend/                              # Бэкенд: pipeline, планировщик
 │   ├── arxiv/
 │   │   ├── api_client.py                # arXiv Atom API + retry
-│   │   └── html_fetcher.py              # Скачивание /abs/<id> + retry
+│   │   └── html_fetcher.py              # Скачивание /abs/<id> + retry (не используется в Сервисе 1)
 │   ├── analytics/
 │   │   └── trends.py                    # to_frame, pivot, top_popular, top_growing
 │   ├── keywords/
@@ -17,8 +17,8 @@ arxiv_trends/
 │   ├── plots/
 │   │   └── plotter.py                   # Построение PNG-графиков (matplotlib)
 │   ├── storage/
-│   │   └── mongo.py                     # MongoStore: write + read + aggregates
-│   ├── pipeline.py                      # Оркестратор run_for_domain / run_all
+│   │   └── mongo.py                     # MongoStore: articles, keyword_counts, aggregates
+│   ├── pipeline.py                      # fetch_abstracts / extract_keywords_batch / recompute_aggregates / render_plots
 │   └── utils.py                         # Вспомогательные функции работы с датами
 │
 ├── config/
@@ -57,19 +57,22 @@ arxiv_trends/
 │           └── top_growing.png
 │
 ├── scripts/                             # Python-утилиты и CLI
-│   ├── run_scheduler.py                 # CLI: loop + sleep + graceful shutdown
-│   ├── run_pipeline.py                  # CLI: пайплайн за произвольный диапазон недель
-│   ├── check_db.py                      # Диагностика БД (покрытие, топ-слова)
-│   └── migrate_normalize_keywords.py    # Миграция: нормализация ключевых слов в БД
+│   ├── 0_check_db.py                    # Диагностика БД (покрытие, топ-слова)
+│   ├── 1_fetch_abstracts.py             # Сервис 1: загрузка абстрактов из arXiv → articles
+│   ├── 2_extract_keywords.py            # Сервис 2: извлечение keywords из articles → counts
+│   ├── 3_recompute_aggregates.py        # Сервис 3: пересчёт агрегатов (топ-популярные / растущие)
+│   ├── 4_render_plots.py                # Сервис 4: построение PNG-графиков из агрегатов
+│   └── run_scheduler.py                 # Планировщик: запуск шага pipeline в цикле
 │
 ├── sh/                                  # Bash-скрипты запуска
 │   ├── setup_conda.sh                   # Создание conda-окружения
 │   ├── setup_systemd.sh                 # Генерация systemd-сервисов
 │   ├── run_tests.sh                     # Запуск тестов
 │   ├── start_1_db.sh                    # Запуск MongoDB
-│   ├── start_2_backend.sh               # Запуск планировщика
-│   ├── start_3_frontend.sh              # Запуск Telegram-бота
-│   └── start_3_frontend_auto_reload.sh  # Telegram-бот с авто-перезапуском
+│   ├── start_2_1_fetch.sh               # Бэкенд 1: fetch (раз в сутки, watchfiles)
+│   ├── start_2_2_extract.sh             # Бэкенд 2: extract keywords (раз в час, watchfiles)
+│   ├── start_2_3_aggregates_plots.sh    # Бэкенд 3+4: aggregates + plots (раз в час, watchfiles)
+│   └── start_3_frontend.sh              # Telegram-бот с авто-перезапуском (watchfiles)
 │
 ├── .env.example                         # Шаблон переменных окружения
 ├── .gitignore

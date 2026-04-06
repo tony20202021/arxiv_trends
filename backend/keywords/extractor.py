@@ -26,15 +26,8 @@ def _regex_extract(abstract: str) -> Dict[str, int]:
 
 
 def extract_keywords_from_abstract(abstract: str) -> Dict[str, int]:
-    """Извлечь ключевые слова из абстракта.
+    """Алиас для _regex_extract (алгоритм v1: count+stopwords).
 
-    Если установлена переменная USE_LLM_EXTRACTOR=1 и LLM доступен — использует LLM.
-    Иначе использует regex-токенизацию.
+    Для выбора другого алгоритма — см. keywords.registry.
     """
-    from keywords.llm_extractor import extract_keywords_llm
-
-    result = extract_keywords_llm(abstract)
-    if result is not None:
-        return result
-
     return _regex_extract(abstract)

@@ -68,11 +68,10 @@ outputs/plots/<domain_id>/top_growing.png
 ## Как запустить
 
 ```bash
-# Один прогон (скачать данные + построить графики)
-./sh/start_2_backend.sh --run-once
-
-# Автоматически каждые 6 часов
-./sh/start_2_backend.sh --interval-hours 6
+# Бэкенд (каждый сервис в отдельном процессе)
+./sh/start_2_1_fetch.sh              # скачивание статей — раз в сутки
+./sh/start_2_2_extract.sh            # ключевые слова — раз в час
+./sh/start_2_3_aggregates_plots.sh         # агрегаты + графики — раз в час
 
 # Telegram-бот
 ./sh/start_3_frontend.sh

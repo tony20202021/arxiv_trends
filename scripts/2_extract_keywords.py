@@ -1,14 +1,14 @@
-"""Запуск пайплайна за произвольный диапазон недель.
+"""Сервис 2: извлечение ключевых слов из articles → weekly_keyword_counts.
+
+Читает только из БД. arXiv API не используется.
+Обрабатывает статьи у которых keywords=None или версия экстрактора устарела.
 
 Примеры:
-  # Собрать данные за Q1 2026 для всех доменов (пропускать уже обработанные):
-  python scripts/run_pipeline.py --from 2026-01-01 --to 2026-03-31
+  # Все домены за Q1 2026:
+  python scripts/2_extract_keywords.py --from 2026-01-01 --to 2026-03-31
 
-  # Только cs_ro и cs_ai за февраль 2026:
-  python scripts/run_pipeline.py --from 2026-02-01 --to 2026-02-28 --domains cs_ro cs_ai
-
-  # Перезаписать данные за конкретную неделю:
-  python scripts/run_pipeline.py --from 2026-03-10 --to 2026-03-10 --overwrite
+  # Только cs_ro, батч по 50 статей за раз:
+  python scripts/2_extract_keywords.py --from 2026-01-01 --to 2026-01-31 --domains cs_ro --batch-size 50
 """
 from __future__ import annotations
 import argparse
@@ -26,31 +26,33 @@ sys.path.insert(0, str(_root))
 from dotenv import load_dotenv
 load_dotenv(_root / ".env")
 
-from pipeline import run_pipeline
+from pipeline import extract_keywords_batch
 
 
 def _setup_logging(level: str) -> None:
+    log_dir = _root / ".outputs" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(log_dir / "extract_keywords.log", encoding="utf-8"),
+        ],
     )
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Запуск пайплайна за диапазон недель")
+    ap = argparse.ArgumentParser(description="Сервис 2: извлечение ключевых слов из БД")
     ap.add_argument("--from", dest="week_from", required=True, metavar="YYYY-MM-DD",
                     help="Начало диапазона (включительно)")
     ap.add_argument("--to", dest="week_to", required=True, metavar="YYYY-MM-DD",
                     help="Конец диапазона (включительно)")
     ap.add_argument("--domains", nargs="+", metavar="DOMAIN",
                     help="Список доменов (по умолчанию — все из domains.json)")
-    ap.add_argument("--overwrite", action="store_true",
-                    help="Удалить старые данные за указанные недели и домены и обработать заново")
-    ap.add_argument("--recompute-aggregates", action="store_true", dest="recompute_aggregates",
-                    help="Пересчитать агрегаты (топ-популярные/растущие) после обработки")
-    ap.add_argument("--max-articles", type=int, default=-1, dest="max_articles",
-                    help="Максимум статей на домен (-1 = без ограничений)")
+    ap.add_argument("--batch-size", type=int, default=100, dest="batch_size",
+                    help="Статей за одну итерацию (по умолчанию 100)")
     ap.add_argument("--domains-file", default="config/domains.json")
     ap.add_argument("--log-level", default="INFO",
                     choices=["DEBUG", "INFO", "WARNING", "ERROR"])
@@ -76,33 +78,22 @@ def main():
 
     mongo_uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
     mongo_db = os.environ.get("MONGO_DB", "arxiv_trends")
-    api_url = os.environ.get("ARXIV_API_URL", "https://export.arxiv.org/api/query")
-    user_agent = os.environ.get("HTTP_USER_AGENT", "arxiv-trends-bot/0.1")
 
-    logging.info(
-        "Запуск: %d доменов, %s … %s, overwrite=%s",
-        len(domains), week_from, week_to, args.overwrite,
-    )
+    logging.info("extract_keywords: %d доменов, %s … %s, batch=%d",
+                 len(domains), week_from, week_to, args.batch_size)
 
-    stats = run_pipeline(
+    stats = extract_keywords_batch(
         domains=domains,
         week_from=week_from,
         week_to=week_to,
         mongo_uri=mongo_uri,
         mongo_db=mongo_db,
-        api_url=api_url,
-        user_agent=user_agent,
-        overwrite=args.overwrite,
-        max_articles=args.max_articles,
-        recompute_aggregates=args.recompute_aggregates,
+        batch_size=args.batch_size,
     )
 
     print("\n=== Итог ===")
     for domain, s in stats.items():
-        print(f"  {domain:<14}  получено={s['total_fetched']:>5}  "
-              f"обработано={s['processed_now']:>5}  "
-              f"пропущено={s['skipped_already_done']:>5}  "
-              f"ошибок={s['skipped_error']:>4}")
+        print(f"  {domain:<14}  обработано={s['processed']:>5}  пропущено={s['skipped']:>5}")
 
 
 if __name__ == "__main__":

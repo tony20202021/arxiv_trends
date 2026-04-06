@@ -33,10 +33,12 @@ SERVICE_DIR="/etc/systemd/system"
 # --- Режим удаления ---
 if [ "${1:-}" = "--remove" ]; then
     echo "Удаляем сервисы arXiv Trends..."
-    sudo systemctl stop arxiv-frontend arxiv-backend arxiv-db 2>/dev/null || true
-    sudo systemctl disable arxiv-frontend arxiv-backend arxiv-db 2>/dev/null || true
+    sudo systemctl stop arxiv-frontend arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-db 2>/dev/null || true
+    sudo systemctl disable arxiv-frontend arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-db 2>/dev/null || true
     sudo rm -f "$SERVICE_DIR/arxiv-db.service" \
-               "$SERVICE_DIR/arxiv-backend.service" \
+               "$SERVICE_DIR/arxiv-backend-1.service" \
+               "$SERVICE_DIR/arxiv-backend-2.service" \
+               "$SERVICE_DIR/arxiv-backend-3.service" \
                "$SERVICE_DIR/arxiv-frontend.service"
     sudo systemctl daemon-reload
     echo "Сервисы удалены."
@@ -70,10 +72,10 @@ WantedBy=multi-user.target
 EOF
 echo "✓ arxiv-db.service"
 
-# --- arxiv-backend.service ---
-sudo tee "$SERVICE_DIR/arxiv-backend.service" > /dev/null <<EOF
+# --- arxiv-backend-1.service (fetch, раз в сутки) ---
+sudo tee "$SERVICE_DIR/arxiv-backend-1.service" > /dev/null <<EOF
 [Unit]
-Description=arXiv Trends - Pipeline Scheduler
+Description=arXiv Trends - Backend 1: fetch abstracts
 After=arxiv-db.service
 Requires=arxiv-db.service
 
@@ -82,14 +84,56 @@ Type=simple
 User=$RUN_USER
 WorkingDirectory=$PROJECT_DIR
 Environment="PATH=$PATH_ENV"
-ExecStart=/bin/bash $PROJECT_DIR/sh/start_2_backend.sh --interval-hours 6
+ExecStart=/bin/bash $PROJECT_DIR/sh/start_2_1_fetch.sh
 Restart=on-failure
 RestartSec=30
 
 [Install]
 WantedBy=multi-user.target
 EOF
-echo "✓ arxiv-backend.service"
+echo "✓ arxiv-backend-1.service"
+
+# --- arxiv-backend-2.service (extract keywords, раз в час) ---
+sudo tee "$SERVICE_DIR/arxiv-backend-2.service" > /dev/null <<EOF
+[Unit]
+Description=arXiv Trends - Backend 2: extract keywords
+After=arxiv-db.service
+Requires=arxiv-db.service
+
+[Service]
+Type=simple
+User=$RUN_USER
+WorkingDirectory=$PROJECT_DIR
+Environment="PATH=$PATH_ENV"
+ExecStart=/bin/bash $PROJECT_DIR/sh/start_2_2_extract.sh
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+echo "✓ arxiv-backend-2.service"
+
+# --- arxiv-backend-3.service (aggregates + plots, раз в час) ---
+sudo tee "$SERVICE_DIR/arxiv-backend-3.service" > /dev/null <<EOF
+[Unit]
+Description=arXiv Trends - Backend 3+4: aggregates and plots
+After=arxiv-db.service
+Requires=arxiv-db.service
+
+[Service]
+Type=simple
+User=$RUN_USER
+WorkingDirectory=$PROJECT_DIR
+Environment="PATH=$PATH_ENV"
+ExecStart=/bin/bash $PROJECT_DIR/sh/start_2_3_aggregates_plots.sh
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+echo "✓ arxiv-backend-3.service"
 
 # --- arxiv-frontend.service ---
 sudo tee "$SERVICE_DIR/arxiv-frontend.service" > /dev/null <<EOF
@@ -114,9 +158,9 @@ echo "✓ arxiv-frontend.service"
 
 # --- Активация ---
 sudo systemctl daemon-reload
-sudo systemctl enable arxiv-db arxiv-backend arxiv-frontend
+sudo systemctl enable arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend
 echo ""
 echo "Сервисы установлены и включены. Запустить:"
 echo "  sudo systemctl start arxiv-db"
 echo "  sleep 5"
-echo "  sudo systemctl start arxiv-backend arxiv-frontend"
+echo "  sudo systemctl start arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend"

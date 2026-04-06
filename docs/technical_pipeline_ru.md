@@ -2,20 +2,33 @@
 
 ## Архитектура
 
+Пайплайн разделён на два независимых сервиса:
+
 ```
+═══════════════════════ Сервис 1: 1_fetch_abstracts.py ═══════════════════════
+
 arXiv API (Atom)
       ↓
-  api_client.py       — постраничная выгрузка статей
+  api_client.py       — постраничная выгрузка статей (батчами по неделям/дням)
+                        абстракт берётся из поля summary прямо из API-ответа
       ↓
-  html_fetcher.py     — скачивание /abs/<id>, извлечение Abstract
+  MongoDB             — коллекция articles (arxiv_id, domain, abstract, ...)
+
+══════════════════════ Сервис 2: 2_extract_keywords.py ═══════════════════════
+
+  MongoDB             — читает articles (где keywords = null или версия устарела)
       ↓
   extractor.py        — извлечение ключевых слов (regex или LLM)
       ↓
-  MongoDB             — коллекция weekly_keyword_counts
+  MongoDB             — articles.keywords + weekly_keyword_counts ($inc upsert)
+
+══════════════════════════════ Аналитика и графики ═══════════════════════════
+
+  MongoDB             — weekly_keyword_counts
       ↓
   trends.py           — расчёт top_popular / top_growing
       ↓
-  MongoDB             — коллекция aggregates (предвычисленные топ-списки)
+  MongoDB             — aggregates (предвычисленные топ-списки)
       ↓
   plotter.py          — графики PNG в outputs/plots/<domain>/
       ↓
@@ -38,11 +51,13 @@ arXiv API (Atom)
 
 **`config/constants.py`** — все числовые параметры:
 - `HISTORY_WEEKS = 52` — глубина истории (1 год)
-- `TOP_N = 10` — количество ключевых слов на графике
+- `TOP_N = 5` — количество ключевых слов на графике
 - `GROWTH_WINDOW_WEEKS = 10` — окно для расчёта тренда роста
-- `MAX_RESULTS_PER_DOMAIN = 2000` — лимит статей на домен за период
+- `KEYWORD_EXTRACTOR_VERSION = 1` — версия алгоритма экстрактора (увеличить при изменении логики)
 - `ARXIV_PAGE_SIZE = 200` — размер страницы при запросе к API
-- `REQUEST_SLEEP_SEC = 0.5` — задержка между запросами (rate limit)
+- `ARXIV_MAX_OFFSET = 30000` — максимальный `start` по документации arXiv
+- `ARXIV_OFFSET_LIMIT = 9800` — фактический лимит (arXiv возвращает 500 при start≥10000)
+- `REQUEST_SLEEP_SEC = 3.0` — задержка между запросами (рекомендация arXiv)
 - `TOKEN_PATTERN` — regex для токенизации
 - `STOPWORDS_EN` — стоп-слова (исключаются из ключевых слов)
 - `MIN_TOKEN_LEN = 3` — минимальная длина токена
@@ -52,23 +67,14 @@ arXiv API (Atom)
 ### 2. Получение статей (`arxiv/api_client.py`)
 
 - Запрос к arXiv Atom API: `feedparser` + `requests`
-- Постраничная выгрузка (`start`, `max_results`) до `MAX_RESULTS_PER_DOMAIN`
+- Абстракт берётся из поля `summary` прямо из Atom-ответа — отдельные HTTP-запросы за страницами абстрактов не нужны
 - Фильтр по диапазону дат (`submittedDate`)
-- **Retry с экспоненциальным backoff**: 3 попытки, пауза ×2 при каждой ошибке
+- **Пагинация батчами по неделям**: каждая неделя запрашивается отдельно, чтобы не превышать лимит `start=10000`; если неделя превышает лимит — автоматически дробится по дням
+- **Retry с экспоненциальным backoff**: 5 попыток, пауза ×2 при каждой ошибке
 
 ---
 
-### 3. Скачивание и парсинг Abstract (`arxiv/html_fetcher.py`)
-
-- Скачивает HTML страницы `https://arxiv.org/abs/<id>`
-- Извлекает текст из `blockquote.abstract` через `beautifulsoup4` + `lxml`
-- Убирает тег `<span class="descriptor">Abstract:</span>`
-- Нормализует пробелы
-- **Retry с экспоненциальным backoff** — аналогично api_client
-
----
-
-### 4. Извлечение ключевых слов (`keywords/`)
+### 3. Извлечение ключевых слов (`keywords/`)
 
 Два режима, переключаются через `.env`:
 
@@ -83,7 +89,7 @@ arXiv API (Atom)
 
 ---
 
-### 5. Хранение в MongoDB (`storage/mongo.py`)
+### 4. Хранение в MongoDB (`storage/mongo.py`)
 
 **Коллекция `weekly_keyword_counts`** — сырые данные:
 
@@ -109,7 +115,7 @@ arXiv API (Atom)
 
 ---
 
-### 6. Аналитика (`analytics/trends.py`)
+### 5. Аналитика (`analytics/trends.py`)
 
 **`to_frame(rows)`** — список документов MongoDB → `pandas.DataFrame`
 
@@ -124,53 +130,63 @@ arXiv API (Atom)
 
 ---
 
-### 7. Графики (`plots/plotter.py`)
+### 6. Графики (`plots/plotter.py`)
 
-- `matplotlib` — линейные графики по неделям
-- Один вызов `plot_keywords_over_time(pivot, keywords, title, out_path)`:
-  - Создаёт родительские директории автоматически
+- `matplotlib` — линейные и столбчатые графики по неделям
+- `plot_keywords_over_time(pivot, keywords, title, out_path, regression_window=N)`:
+  - При `regression_window` — рисует линии линейной регрессии за последние N недель (тот же цвет, `alpha=0.4`)
   - При пустых данных — сохраняет заглушку "No data"
   - Обрезает историю до `HISTORY_WEEKS`
+- `plot_article_counts(counts_by_week, title, out_path)` — количество статей по неделям
+- `build_keyword_styles(keywords)` — единый словарь цвет+маркер для обоих keyword-графиков
 
-Графики сохраняются в: `outputs/plots/<slug>/top_popular.png`, `top_growing.png`
-
----
-
-### 8. Оркестратор (`pipeline.py`)
-
-`run_for_domain()`:
-1. Вычисляет диапазон недель (`iter_week_starts`)
-2. Загружает статьи постранично через `ArxivApiClient`
-3. Для каждой статьи: скачивает HTML, извлекает abstract, считает ключевые слова
-4. Агрегирует по неделям
-5. Записывает в MongoDB (`upsert_week_counts`)
-6. Читает обратно, строит pivot, вычисляет топ-списки
-7. Сохраняет агрегаты (`save_aggregated`)
-8. Строит и сохраняет графики
-
-Ошибки отдельных статей перехватываются и логируются — pipeline не падает.
-
-`run_all()`: создаёт `outputs/`, инициализирует клиенты, запускает `run_for_domain` для каждого домена. Ошибки отдельных доменов перехватываются — остальные продолжают выполняться.
+Графики сохраняются в `.outputs/plots/<domain>/`: `top_popular.png`, `top_growing.png`, `articles_per_week.png`
 
 ---
 
-### 9. Планировщик (`backend/scripts/run_scheduler.py`)
+### 7. Сервисные функции (`pipeline.py`)
 
-Бесконечный цикл с настраиваемым интервалом:
-- `--interval-hours` (по умолчанию 6)
+`fetch_abstracts()` — Сервис 1:
+1. Разбивает диапазон дат на недели (`_date_ranges_for_period`)
+2. Для каждой недели — пагинация через `_fetch_range`; при превышении `ARXIV_OFFSET_LIMIT` автоматически дробит по дням
+3. Абстракт берётся из поля `summary` Atom-ответа — отдельных HTTP-запросов нет
+4. Новые статьи сохраняет в `articles` (`upsert_article`)
+
+`extract_keywords_batch()` — Сервис 2:
+1. Читает `articles` где `keywords=null` или версия экстрактора устарела
+2. Извлекает ключевые слова через `extractor.py`
+3. Записывает в `articles.keywords` и `weekly_keyword_counts` (`$inc` upsert)
+4. Round-based: фиксирует количество статей на начало раунда, обрабатывает ровно столько (параллельный Сервис 1 не ломает счётчики)
+
+`recompute_aggregates()` — Сервис 3:
+- Проверяет актуальность: пропускает домен если `articles.updated_at ≤ aggregates.computed_at`
+- Вычисляет `top_popular` и `top_growing` через `analytics/trends.py`
+- Сохраняет в `aggregates` + суммарный агрегат `_all` по всем доменам
+
+`render_plots()` — Сервис 4:
+- Читает агрегаты из `aggregates` и данные из `weekly_keyword_counts` / `articles`
+- Строит 3 графика на домен + суммарные графики `_all`
+
+---
+
+### 8. Планировщик (`scripts/run_scheduler.py`)
+
+Бесконечный цикл для одного шага pipeline:
+- `--step 1|2|3` — шаг: 1=fetch, 2=extract, 3=aggregates+plots
+- `--interval-hours` — интервал между прогонами
+- `--from` / `--to` — диапазон дат (по умолчанию: год назад → сегодня, пересчитывается каждый прогон)
 - `--run-once` — один прогон и выход
 - Graceful shutdown по `SIGINT` / `SIGTERM`
-- Сон реализован маленькими чанками (30 сек) для быстрой реакции на сигналы
 
 ---
 
-### 10. Telegram-бот (`frontend/telegram_bot/bot.py`)
+### 9. Telegram-бот (`frontend/telegram_bot/bot.py`)
 
 - Библиотека: `python-telegram-bot` v21+
-- Команды: `/start`, `/domains`, `/trends <domain_id>`
-- Отправляет пару PNG через `reply_media_group`
+- Команды: `/start`, `/domains`; домен выбирается через inline-кнопки
+- Отправляет 3 графика отдельными сообщениями: `articles_per_week`, `top_popular`, `top_growing`
 - Список доменов и дату последнего обновления берёт из коллекции `aggregates`
-- При недоступной БД — fallback на файловую систему (`outputs/plots/`)
+- При недоступной БД — fallback на файловую систему (`.outputs/plots/`)
 
 ---
 
@@ -181,10 +197,12 @@ arXiv API (Atom)
 ./sh/setup_conda.sh && conda activate conda_arxive_trends
 
 # MongoDB
-./sh/start_1_db.sh          # systemctl или ~/mongodb/bin/mongod
+./sh/start_1_db.sh                  # systemctl или ~/mongodb/bin/mongod
 
-# Бэкенд (pipeline в цикле)
-./sh/start_2_backend.sh --interval-hours 6
+# Бэкенд (каждый сервис в отдельном процессе)
+./sh/start_2_1_fetch.sh              # скачивание статей — раз в сутки
+./sh/start_2_2_extract.sh            # ключевые слова — раз в час
+./sh/start_2_3_aggregates_plots.sh         # агрегаты + графики — раз в час
 
 # Фронтенд (Telegram-бот)
 ./sh/start_3_frontend.sh
