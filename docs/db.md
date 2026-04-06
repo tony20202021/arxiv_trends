@@ -24,7 +24,7 @@
 - `published DESC` — сортировка при полнотекстовом поиске
 - Text index на `(abstract, title)` — полнотекстовый поиск (`0_check_db.py search`)
 
-Заполняется Сервисом 1 (`1_fetch_abstracts.py`). Keywords и `updated_at` заполняются Сервисом 2 (`2_extract_keywords.py`).
+Заполняется Сервисом 1 (`run_scheduler.py --step 1`). Keywords и `updated_at` заполняются Сервисом 2 (`--step 2`).
 
 ---
 

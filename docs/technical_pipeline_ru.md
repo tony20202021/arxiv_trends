@@ -5,7 +5,7 @@
 Пайплайн разделён на два независимых сервиса:
 
 ```
-═══════════════════════ Сервис 1: 1_fetch_abstracts.py ═══════════════════════
+══════════════════════ Шаг 1: run_scheduler.py --step 1 ═══════════════════════
 
 arXiv API (Atom)
       ↓
@@ -14,7 +14,7 @@ arXiv API (Atom)
       ↓
   MongoDB             — коллекция articles (arxiv_id, domain, abstract, ...)
 
-══════════════════════ Сервис 2: 2_extract_keywords.py ═══════════════════════
+══════════════════════ Шаг 2: run_scheduler.py --step 2 ═══════════════════════
 
   MongoDB             — читает articles (где keywords = null или версия устарела)
       ↓
@@ -53,7 +53,6 @@ arXiv API (Atom)
 - `HISTORY_WEEKS = 52` — глубина истории (1 год)
 - `TOP_N = 5` — количество ключевых слов на графике
 - `GROWTH_WINDOW_WEEKS = 10` — окно для расчёта тренда роста
-- `KEYWORD_EXTRACTOR_VERSION = 1` — версия алгоритма экстрактора (увеличить при изменении логики)
 - `ARXIV_PAGE_SIZE = 200` — размер страницы при запросе к API
 - `ARXIV_MAX_OFFSET = 30000` — максимальный `start` по документации arXiv
 - `ARXIV_OFFSET_LIMIT = 9800` — фактический лимит (arXiv возвращает 500 при start≥10000)
@@ -61,6 +60,8 @@ arXiv API (Atom)
 - `TOKEN_PATTERN` — regex для токенизации
 - `STOPWORDS_EN` — стоп-слова (исключаются из ключевых слов)
 - `MIN_TOKEN_LEN = 3` — минимальная длина токена
+
+> Версия экстрактора вынесена в `backend/keywords/registry.py` (см. раздел 3).
 
 ---
 
@@ -76,16 +77,35 @@ arXiv API (Atom)
 
 ### 3. Извлечение ключевых слов (`keywords/`)
 
-Два режима, переключаются через `.env`:
+**`registry.py`** — центральный реестр алгоритмов:
 
-**Режим regex** (по умолчанию, `USE_LLM_EXTRACTOR=0`):
-- `extractor.py`: токенизация по `TOKEN_PATTERN`, фильтрация стоп-слов и коротких токенов
+| Ключ | DB ID | Алгоритм | Статус |
+|---|---|---|---|
+| `1_count_stopwords` | 1 | Regex + лемматизация + стоп-слова | **активный** |
+| `2_llm` | 2 | LLM (OpenAI-совместимый, `USE_LLM_EXTRACTOR=1`) | готов |
+| `3_tfidf_sklearn` | 3 | TF-IDF (scikit-learn) | заготовка |
+| `4_tfidf_gensim` | 4 | TF-IDF (gensim) | заготовка |
+| `5_keybert` | 5 | KeyBERT (sentence-transformers) | заготовка |
+| `6_yake` | 6 | YAKE (статистический) | заготовка |
+
+**Смена алгоритма** — одна строка в `registry.py`:
+```python
+ACTIVE_EXTRACTOR_KEY = "1_count_stopwords"  # изменить здесь
+```
+При смене DB ID возрастает → Сервис 2 автоматически перепроцессирует все статьи.
+
+В БД хранится целое число (`keyword_extractor_version`) для скорости индексирования.
+В `aggregates` сохраняется строковый ключ (`extractor_key`) — отображается в заголовках графиков.
+
+**`extractor.py`** — реализация алгоритма v1:
+- Токенизация по `TOKEN_PATTERN`, фильтрация стоп-слов и коротких токенов
+- Лемматизация через spaCy (`en_core_web_sm`)
 - Возвращает `Dict[keyword, count]`
 
-**Режим LLM** (`USE_LLM_EXTRACTOR=1`):
-- `llm_extractor.py`: вызов OpenAI-совместимого API через `smkt_llm.py`
+**`llm_extractor.py`** — реализация алгоритма v2:
+- Вызов OpenAI-совместимого API
 - Структурированный вывод через Pydantic (`KeywordList`)
-- При ошибке LLM — автоматический fallback на regex
+- Возвращает `None` если `USE_LLM_EXTRACTOR != 1`
 
 ---
 
@@ -149,23 +169,27 @@ arXiv API (Atom)
 `fetch_abstracts()` — Сервис 1:
 1. Разбивает диапазон дат на недели (`_date_ranges_for_period`)
 2. Для каждой недели — пагинация через `_fetch_range`; при превышении `ARXIV_OFFSET_LIMIT` автоматически дробит по дням
-3. Абстракт берётся из поля `summary` Atom-ответа — отдельных HTTP-запросов нет
-4. Новые статьи сохраняет в `articles` (`upsert_article`)
+3. После каждой недели выводит в лог: прошедшее время и ETA до завершения всех недель
+4. Абстракт берётся из поля `summary` Atom-ответа — отдельных HTTP-запросов нет
+5. Новые статьи сохраняет в `articles` (`upsert_article`)
 
 `extract_keywords_batch()` — Сервис 2:
-1. Читает `articles` где `keywords=null` или версия экстрактора устарела
-2. Извлекает ключевые слова через `extractor.py`
+1. Читает `articles` где `keywords=null` или `keyword_extractor_version < ACTIVE_EXTRACTOR.db_id`
+2. Извлекает ключевые слова через `keywords.registry.extract_keywords()` (активный алгоритм)
 3. Записывает в `articles.keywords` и `weekly_keyword_counts` (`$inc` upsert)
 4. Round-based: фиксирует количество статей на начало раунда, обрабатывает ровно столько (параллельный Сервис 1 не ломает счётчики)
 
 `recompute_aggregates()` — Сервис 3:
+- Принимает `date_from` — фильтрует недели начиная с этой даты (планировщик передаёт год назад от текущей даты)
 - Проверяет актуальность: пропускает домен если `articles.updated_at ≤ aggregates.computed_at`
 - Вычисляет `top_popular` и `top_growing` через `analytics/trends.py`
-- Сохраняет в `aggregates` + суммарный агрегат `_all` по всем доменам
+- Сохраняет в `aggregates` (поля `top_popular`, `top_growing`, `extractor_key`) + суммарный агрегат `_all`
 
 `render_plots()` — Сервис 4:
+- Принимает `date_from` — строит графики только за последний год
 - Читает агрегаты из `aggregates` и данные из `weekly_keyword_counts` / `articles`
 - Строит 3 графика на домен + суммарные графики `_all`
+- В заголовках `top_popular.png` и `top_growing.png` отображается `extractor_key` из агрегатов
 
 ---
 
@@ -208,7 +232,7 @@ arXiv API (Atom)
 ./sh/start_3_frontend.sh
 
 # Тесты
-./sh/run_tests.sh -v        # 85 тестов
+./sh/run_tests.sh -v        # 142 теста
 ```
 
 ---

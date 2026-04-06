@@ -14,11 +14,10 @@ nano .env   # заполнить MONGO_URI, TELEGRAM_BOT_TOKEN и др.
 # 3. Запустить MongoDB
 ./sh/start_1_db.sh
 
-# 4. Заполнить данные (один прогон каждого сервиса)
-python scripts/1_fetch_abstracts.py --from 2025-04-01 --to 2026-04-05
-python scripts/2_extract_keywords.py --from 2025-04-01 --to 2026-04-05
-python scripts/3_recompute_aggregates.py
-python scripts/4_render_plots.py
+# 4. Заполнить данные (один прогон каждого шага)
+python scripts/run_scheduler.py --step 1 --from 2025-04-01 --to 2026-04-05 --run-once
+python scripts/run_scheduler.py --step 2 --from 2025-04-01 --to 2026-04-05 --run-once
+python scripts/run_scheduler.py --step 3 --run-once
 
 # 5. Запустить Telegram-бот
 ./sh/start_3_frontend.sh
@@ -38,8 +37,10 @@ python scripts/4_render_plots.py
 ./sh/start_3_frontend.sh   # Telegram-бот
 ```
 
-Все скрипты бэкенда используют watchfiles: при изменении файлов в `backend/` или `config/`
-процесс перезапускается автоматически.
+Каждый скрипт бэкенда отслеживает только свои каталоги через watchfiles:
+- `start_2_1_fetch.sh` — `backend/arxiv`, `backend/storage`, `backend/pipeline.py`
+- `start_2_2_extract.sh` — `backend/keywords`, `backend/llm`, `backend/storage`, `backend/pipeline.py`
+- `start_2_3_aggregates_plots.sh` — `backend/analytics`, `backend/plots`, `backend/storage`, `backend/pipeline.py`
 
 ---
 
