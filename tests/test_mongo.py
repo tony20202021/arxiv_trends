@@ -324,6 +324,21 @@ class TestMongoStoreSaveAndGetAggregated:
         filter_doc = _mock_agg_col.update_one.call_args[0][0]
         assert filter_doc == {"domain": "cs_lg"}
 
+    def test_save_includes_extractor_key(self):
+        store = _make_store()
+        ts = dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc)
+        store.save_aggregated("cs_lg", ts, ["transformer"], ["diffusion"],
+                              extractor_key="1_count_stopwords")
+        update_doc = _mock_agg_col.update_one.call_args[0][1]
+        assert update_doc["$set"]["extractor_key"] == "1_count_stopwords"
+
+    def test_save_extractor_key_default_empty(self):
+        store = _make_store()
+        ts = dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc)
+        store.save_aggregated("cs_lg", ts, [], [])
+        update_doc = _mock_agg_col.update_one.call_args[0][1]
+        assert "extractor_key" in update_doc["$set"]
+
     def test_get_calls_find_one(self):
         store = _make_store()
         _mock_agg_col.find_one.return_value = {"domain": "cs_lg", "top_popular": ["transformer"]}

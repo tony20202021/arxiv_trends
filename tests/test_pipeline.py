@@ -541,3 +541,118 @@ class TestExtractKeywordsBatch:
         articles = [self._make_article(f"2401.0000{i}") for i in range(3)]
         stats, store = self._run([articles])
         assert stats["cs_lg"]["processed"] == 3
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# _date_ranges_for_period
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestDateRangesForPeriod:
+    def test_single_week(self):
+        from pipeline import _date_ranges_for_period
+        result = _date_ranges_for_period(dt.date(2024, 1, 1), dt.date(2024, 1, 7))
+        assert len(result) == 1
+        assert result[0] == (dt.date(2024, 1, 1), dt.date(2024, 1, 7))
+
+    def test_two_full_weeks(self):
+        from pipeline import _date_ranges_for_period
+        result = _date_ranges_for_period(dt.date(2024, 1, 1), dt.date(2024, 1, 14))
+        assert len(result) == 2
+        assert result[0] == (dt.date(2024, 1, 1), dt.date(2024, 1, 7))
+        assert result[1] == (dt.date(2024, 1, 8), dt.date(2024, 1, 14))
+
+    def test_partial_last_week_clipped_to_end(self):
+        from pipeline import _date_ranges_for_period
+        result = _date_ranges_for_period(dt.date(2024, 1, 1), dt.date(2024, 1, 10))
+        assert len(result) == 2
+        assert result[-1][1] == dt.date(2024, 1, 10)  # конец обрезан
+
+    def test_single_day(self):
+        from pipeline import _date_ranges_for_period
+        d = dt.date(2024, 1, 3)
+        result = _date_ranges_for_period(d, d)
+        assert len(result) == 1
+        assert result[0] == (d, d)
+
+    def test_ranges_are_contiguous(self):
+        from pipeline import _date_ranges_for_period
+        result = _date_ranges_for_period(dt.date(2024, 1, 1), dt.date(2024, 3, 31))
+        for i in range(len(result) - 1):
+            _, end = result[i]
+            start, _ = result[i + 1]
+            import datetime as _dt
+            assert start == end + _dt.timedelta(days=1)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# date_from фильтрация в recompute_aggregates / render_plots
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestDateFromFiltering:
+    _WS_OLD = dt.datetime(2023, 6, 1)   # старая неделя — без timezone (как в MongoDB)
+    _WS_NEW = dt.datetime(2024, 1, 1)   # новая неделя
+
+    def _make_store(self, week_datetimes):
+        store = MagicMock()
+        store.get_latest_article_update.return_value = dt.datetime(2024, 2, 1, tzinfo=dt.timezone.utc)
+        store.get_aggregated.return_value = {
+            "computed_at": dt.datetime(2023, 1, 1, tzinfo=dt.timezone.utc),
+            "top_popular": ["transformer"],
+            "top_growing": ["diffusion"],
+            "extractor_key": "1_count_stopwords",
+        }
+        store.col.distinct.return_value = week_datetimes
+        store.get_counts_last_weeks.return_value = []
+        store.get_all_week_starts.return_value = week_datetimes
+        store.get_counts_all_domains.return_value = []
+        store.get_article_counts_by_week.return_value = {}
+        store.get_article_counts_all_domains.return_value = {}
+        return store
+
+    def test_recompute_aggregates_filters_old_weeks(self):
+        store = self._make_store([self._WS_OLD, self._WS_NEW])
+        cutoff = dt.date(2024, 1, 1)
+
+        with patch("pipeline.MongoStore", return_value=store):
+            from pipeline import recompute_aggregates
+            results = recompute_aggregates(
+                domains=[_make_domain()],
+                mongo_uri="mongodb://localhost",
+                mongo_db="test_db",
+                date_from=cutoff,
+            )
+        # Только _WS_NEW должна пройти фильтр → 1 неделя
+        assert results["cs_lg"]["weeks"] == 1
+
+    def test_recompute_aggregates_no_date_from_uses_all_weeks(self):
+        store = self._make_store([self._WS_OLD, self._WS_NEW])
+
+        with patch("pipeline.MongoStore", return_value=store):
+            from pipeline import recompute_aggregates
+            results = recompute_aggregates(
+                domains=[_make_domain()],
+                mongo_uri="mongodb://localhost",
+                mongo_db="test_db",
+            )
+        assert results["cs_lg"]["weeks"] == 2
+
+    def test_render_plots_filters_old_weeks(self, tmp_path):
+        store = self._make_store([self._WS_OLD, self._WS_NEW])
+        cutoff = dt.date(2024, 1, 1)
+
+        with patch("pipeline.MongoStore", return_value=store), \
+             patch("pipeline.plot_keywords_over_time"), \
+             patch("pipeline.plot_article_counts"):
+            from pipeline import render_plots
+            render_plots(
+                domains=[_make_domain()],
+                mongo_uri="mongodb://localhost",
+                mongo_db="test_db",
+                out_dir=str(tmp_path),
+                date_from=cutoff,
+            )
+        # get_counts_last_weeks должен получить только одну неделю (_WS_NEW)
+        call_args = store.get_counts_last_weeks.call_args
+        weeks_passed = call_args[0][1]  # второй позиционный аргумент
+        assert self._WS_OLD not in weeks_passed
+        assert self._WS_NEW in weeks_passed
