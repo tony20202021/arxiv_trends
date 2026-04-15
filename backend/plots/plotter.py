@@ -109,6 +109,52 @@ def plot_keywords_over_time(
     plt.close(fig)
 
 
+def plot_keyword_across_domains(
+    keyword: str,
+    domain_series: Dict[str, pd.Series],
+    title: str,
+    out_path: Path,
+):
+    """Кросс-доменный график: один ключевой термин по нескольким доменам.
+
+    Args:
+        keyword:       ключевой термин (для подписи на графике)
+        domain_series: {domain_id: pd.Series(index=datetime, values=count)}
+        title:         заголовок графика
+        out_path:      путь к выходному PNG
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    non_empty = {d: s for d, s in domain_series.items() if not s.empty and s.sum() > 0}
+    if not non_empty:
+        fig = plt.figure()
+        plt.title(title)
+        plt.text(0.5, 0.5, f"No data for '{keyword}'", ha="center", va="center")
+        plt.axis("off")
+        fig.savefig(out_path, bbox_inches="tight")
+        plt.close(fig)
+        return
+
+    fig = plt.figure()
+    for i, (domain, series) in enumerate(sorted(non_empty.items())):
+        color = _COLORS[i % len(_COLORS)]
+        marker = _MARKERS[i % len(_MARKERS)]
+        idx = sorted(series.index)
+        if len(idx) > HISTORY_WEEKS:
+            idx = idx[-HISTORY_WEEKS:]
+        vals = [series.get(w, 0) for w in idx]
+        plt.plot(idx, vals, label=domain, color=color, marker=marker,
+                 markersize=5, linestyle="--")
+
+    plt.title(title)
+    plt.xlabel("Week")
+    plt.ylabel("Count")
+    plt.legend(fontsize=8, ncols=2)
+    fig.autofmt_xdate()
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
+
+
 def plot_article_counts(
     counts_by_week: Dict[dt.datetime, int],
     title: str,

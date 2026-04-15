@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arXiv Trends Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f4f4f8; color: #222; }
+
+    header {
+      background: #1a1a2e; color: #eee;
+      padding: 1rem 2rem;
+      display: flex; align-items: center; gap: 1rem;
+    }
+    header h1 { font-size: 1.4rem; }
+    header .subtitle { font-size: 0.85rem; opacity: .7; margin-top: .2rem; }
+    header .badge {
+      margin-left: auto; background: #0f3460; color: #eee;
+      border-radius: 999px; padding: .2rem .8rem; font-size: .85rem;
+    }
+
+    .search-bar {
+      max-width: 600px; margin: 1.5rem auto;
+      padding: 0 1rem;
+    }
+    .search-bar input {
+      width: 100%; padding: .6rem 1rem;
+      border: 1px solid #ccc; border-radius: 8px;
+      font-size: 1rem;
+    }
+
+    .grid {
+      display: flex; flex-wrap: wrap; gap: 1.5rem;
+      padding: 0 1.5rem 2rem;
+      justify-content: center;
+    }
+
+    .card {
+      background: #fff; border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+      width: 340px; overflow: hidden;
+      transition: box-shadow .2s;
+    }
+    .card:hover { box-shadow: 0 4px 18px rgba(0,0,0,.15); }
+
+    .card-header {
+      background: #0f3460; color: #eee;
+      padding: .7rem 1rem;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .card-header .domain-id { font-weight: 600; font-size: 1rem; }
+    .card-header .updated { font-size: .7rem; opacity: .8; }
+
+    .tabs {
+      display: flex; border-bottom: 1px solid #eee;
+    }
+    .tab {
+      flex: 1; padding: .5rem; text-align: center;
+      cursor: pointer; font-size: .8rem; color: #555;
+      border-bottom: 3px solid transparent;
+      transition: all .15s;
+    }
+    .tab:hover { background: #f0f0ff; }
+    .tab.active { color: #0f3460; border-bottom-color: #0f3460; font-weight: 600; }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .card img {
+      width: 100%; display: block;
+      background: #fafafa;
+    }
+
+    .no-data {
+      padding: 2rem; text-align: center; color: #999; font-size: .9rem;
+    }
+
+    footer {
+      text-align: center; padding: 1rem;
+      font-size: .75rem; color: #999;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>arXiv Trends</h1>
+    <div class="subtitle">Тренды ключевых слов в научных статьях</div>
+  </div>
+  <div class="badge">{{ total }} доменов</div>
+</header>
+
+<div class="search-bar">
+  <input type="text" id="search" placeholder="Поиск домена..." oninput="filterCards(this.value)">
+</div>
+
+{% if domains %}
+<div class="grid" id="grid">
+  {% for d in domains %}
+  <div class="card" data-domain="{{ d.id }}">
+    <div class="card-header">
+      <span class="domain-id">{{ d.id }}</span>
+      {% if d.updated %}<span class="updated">{{ d.updated }}</span>{% endif %}
+    </div>
+
+    <div class="tabs">
+      {% if d.has_popular %}
+      <div class="tab active" onclick="switchTab(this, '{{ d.id }}', 'popular')">Популярные</div>
+      {% endif %}
+      {% if d.has_growing %}
+      <div class="tab {% if not d.has_popular %}active{% endif %}" onclick="switchTab(this, '{{ d.id }}', 'growing')">Растущие</div>
+      {% endif %}
+      {% if d.has_articles %}
+      <div class="tab {% if not d.has_popular and not d.has_growing %}active{% endif %}" onclick="switchTab(this, '{{ d.id }}', 'articles')">Статьи/нед.</div>
+      {% endif %}
+    </div>
+
+    {% if d.has_popular %}
+    <div class="tab-content {% if d.has_popular %}active{% endif %}" id="{{ d.id }}-popular">
+      <img src="/plots/{{ d.id }}/top_popular.png" alt="top popular {{ d.id }}" loading="lazy">
+    </div>
+    {% endif %}
+
+    {% if d.has_growing %}
+    <div class="tab-content {% if not d.has_popular %}active{% endif %}" id="{{ d.id }}-growing">
+      <img src="/plots/{{ d.id }}/top_growing.png" alt="top growing {{ d.id }}" loading="lazy">
+    </div>
+    {% endif %}
+
+    {% if d.has_articles %}
+    <div class="tab-content {% if not d.has_popular and not d.has_growing %}active{% endif %}" id="{{ d.id }}-articles">
+      <img src="/plots/{{ d.id }}/articles_per_week.png" alt="articles {{ d.id }}" loading="lazy">
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="no-data">
+  <p>Нет готовых графиков.<br>
+  Запустите pipeline: <code>./sh/start_2_1_fetch.sh</code> &amp;&amp; <code>./sh/start_2_2_extract.sh</code> &amp;&amp; <code>./sh/start_2_3_aggregates_plots.sh</code></p>
+</div>
+{% endif %}
+
+<footer>arXiv Trends Dashboard &mdash; только чтение</footer>
+
+<script>
+function switchTab(el, domainId, tab) {
+  const card = el.closest('.card');
+  card.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  card.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  const content = document.getElementById(domainId + '-' + tab);
+  if (content) content.classList.add('active');
+}
+
+function filterCards(query) {
+  const q = query.toLowerCase();
+  document.querySelectorAll('.card').forEach(card => {
+    const match = card.dataset.domain.includes(q);
+    card.style.display = match ? '' : 'none';
+  });
+}
+</script>
+
+</body>
+</html>

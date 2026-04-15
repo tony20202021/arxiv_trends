@@ -11,6 +11,11 @@
     3  — recompute_aggregates + render_plots: пересчёт агрегатов и графиков
 
 По умолчанию диапазон дат: от 1 года назад до сегодня (пересчитывается каждый прогон).
+
+Circuit breaker:
+    После ALERT_FAIL_THRESHOLD последовательных ошибок отправляет Telegram-алерт
+    (если заданы TELEGRAM_BOT_TOKEN и ALERT_TELEGRAM_CHAT_ID в .env).
+    Сервис НЕ останавливается — продолжает пытаться при следующем интервале.
 """
 from __future__ import annotations
 import argparse
@@ -20,6 +25,8 @@ import logging
 import os
 import signal
 import time
+import urllib.request
+import urllib.parse
 from pathlib import Path
 
 _root = Path(__file__).parent.parent
@@ -31,10 +38,15 @@ from dotenv import load_dotenv
 load_dotenv(_root / ".env")
 
 from pipeline import fetch_abstracts, extract_keywords_batch, recompute_aggregates, render_plots
+from utils.cli import parse_date
+from utils.logging_setup import setup_logging
 
 logger = logging.getLogger(__name__)
 
 _shutdown = False
+
+# Число последовательных ошибок до отправки Telegram-алерта
+ALERT_FAIL_THRESHOLD = 3
 
 
 def _handle_signal(signum, frame):
@@ -43,18 +55,19 @@ def _handle_signal(signum, frame):
     _shutdown = True
 
 
-def _setup_logging(level: str, step: str) -> None:
-    log_dir = _root / ".outputs" / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(log_dir / f"scheduler_step{step}.log", encoding="utf-8"),
-        ],
-    )
+def _send_telegram_alert(token: str, chat_id: str, text: str) -> None:
+    """Отправить сообщение через Telegram Bot API (без внешних зависимостей)."""
+    try:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
+        req = urllib.request.Request(url, data=data, method="POST")
+        with urllib.request.urlopen(req, timeout=10):
+            pass
+        logger.info("Telegram-алерт отправлен в chat_id=%s", chat_id)
+    except Exception as exc:
+        logger.warning("Не удалось отправить Telegram-алерт: %s", exc)
+
+
 
 
 def _date_range(from_date: dt.date | None, to_date: dt.date | None) -> tuple[dt.date, dt.date]:
@@ -75,7 +88,8 @@ def run_once(
     out_dir: str,
     from_date: dt.date | None,
     to_date: dt.date | None,
-) -> None:
+) -> bool:
+    """Запустить один прогон. Возвращает True при успехе, False при ошибке."""
     logger.info("=== Начало прогона (шаг %s) ===", step)
     try:
         week_from, week_to = _date_range(from_date, to_date)
@@ -116,8 +130,10 @@ def run_once(
             )
 
         logger.info("=== Прогон завершён успешно ===")
+        return True
     except Exception as exc:
         logger.error("=== Прогон завершился с ошибкой: %s ===", exc, exc_info=True)
+        return False
 
 
 def main():
@@ -127,18 +143,25 @@ def main():
     ap.add_argument("--interval-hours", type=float, default=1.0,
                     help="Интервал между прогонами в часах (по умолчанию: 1)")
     ap.add_argument("--from", dest="from_date", metavar="YYYY-MM-DD", default=None,
+                    type=parse_date,
                     help="Начало диапазона дат (по умолчанию: год назад от текущей даты)")
     ap.add_argument("--to", dest="to_date", metavar="YYYY-MM-DD", default=None,
+                    type=parse_date,
                     help="Конец диапазона дат (по умолчанию: сегодня)")
     ap.add_argument("--domains", default="config/domains.json")
     ap.add_argument("--out", default=".outputs")
     ap.add_argument("--log-level", default="INFO",
                     choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    ap.add_argument("--log-format", default="text", choices=["text", "json"])
     ap.add_argument("--run-once", action="store_true",
                     help="Запустить один прогон и выйти")
     args = ap.parse_args()
 
-    _setup_logging(args.log_level, args.step)
+    setup_logging(
+        level=args.log_level,
+        log_file=_root / ".outputs" / "logs" / f"scheduler_step{args.step}.log",
+        fmt=args.log_format,
+    )
 
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
@@ -150,10 +173,17 @@ def main():
     user_agent = os.environ.get("HTTP_USER_AGENT", "arxiv-trends-bot/0.1")
     interval_sec = args.interval_hours * 3600
 
-    from_date = dt.date.fromisoformat(args.from_date) if args.from_date else None
-    to_date   = dt.date.fromisoformat(args.to_date)   if args.to_date   else None
+    from_date = args.from_date  # уже dt.date благодаря type=parse_date
+    to_date   = args.to_date
+
+    tg_token   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    tg_chat_id = os.environ.get("ALERT_TELEGRAM_CHAT_ID", "")
 
     logger.info("Планировщик запущен. Шаг=%s, интервал=%.1f ч.", args.step, args.interval_hours)
+    if tg_token and tg_chat_id:
+        logger.info("Telegram-алерты включены (chat_id=%s, порог=%d ошибок)", tg_chat_id, ALERT_FAIL_THRESHOLD)
+    else:
+        logger.info("Telegram-алерты отключены (TELEGRAM_BOT_TOKEN / ALERT_TELEGRAM_CHAT_ID не заданы)")
 
     kwargs = dict(
         step=args.step,
@@ -171,8 +201,29 @@ def main():
         run_once(**kwargs)
         return
 
+    consecutive_failures = 0
+
     while not _shutdown:
-        run_once(**kwargs)
+        success = run_once(**kwargs)
+
+        if success:
+            consecutive_failures = 0
+        else:
+            consecutive_failures += 1
+            logger.warning(
+                "Последовательных ошибок: %d / %d",
+                consecutive_failures, ALERT_FAIL_THRESHOLD,
+            )
+            if consecutive_failures >= ALERT_FAIL_THRESHOLD and tg_token and tg_chat_id:
+                hostname = os.uname().nodename if hasattr(os, "uname") else "unknown"
+                msg = (
+                    f"⚠️ arXiv Trends — шаг {args.step} упал {consecutive_failures} раз подряд\n"
+                    f"Хост: {hostname}\n"
+                    f"Время: {dt.datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+                    f"Интервал: {args.interval_hours} ч."
+                )
+                _send_telegram_alert(tg_token, tg_chat_id, msg)
+                consecutive_failures = 0  # сброс счётчика после алерта
 
         if _shutdown:
             break

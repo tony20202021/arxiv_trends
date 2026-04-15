@@ -7,13 +7,12 @@
 
 Требует в .env:
     TELEGRAM_BOT_TOKEN   — токен бота от @BotFather
-    MONGO_URI            — URI MongoDB (для чтения агрегатов)
-    MONGO_DB             — название БД
 
 Запуск:
     python frontend/telegram_bot/bot.py
 """
 from __future__ import annotations
+import datetime as dt
 import logging
 import os
 from pathlib import Path
@@ -40,17 +39,16 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 OUTPUTS_DIR = Path(os.environ.get("OUTPUTS_DIR", ".outputs"))
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
-MONGO_DB = os.environ.get("MONGO_DB", "arxiv_trends")
 
 
-def _get_store():
-    """Ленивый импорт MongoStore чтобы не требовать pymongo при тестах без БД."""
-    import sys
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent / "backend"))
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-    from storage.mongo import MongoStore
-    return MongoStore(MONGO_URI, MONGO_DB)
+def _plot_updated_at(path: Path) -> str:
+    """Возвращает время последнего изменения файла как строку UTC."""
+    try:
+        mtime = path.stat().st_mtime
+        ts = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc)
+        return ts.strftime("%Y-%m-%d %H:%M UTC")
+    except OSError:
+        return "неизвестно"
 
 
 def _plots_for_domain(domain_id: str) -> tuple[Path | None, Path | None, Path | None]:
@@ -78,25 +76,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_domains(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        store = _get_store()
-        aggs = store.get_all_aggregated()
-    except Exception as exc:
-        logger.warning("Не удалось подключиться к MongoDB: %s", exc)
-        aggs = []
+    plot_dirs = sorted(OUTPUTS_DIR.glob("plots/*/top_popular.png"))
+    if not plot_dirs:
+        await update.message.reply_text(
+            "Нет готовых данных. Запустите pipeline: ./sh/start_2_1_fetch.sh && ./sh/start_2_2_extract.sh && ./sh/start_2_3_aggregates_plots.sh"
+        )
+        return
 
-    if not aggs:
-        # fallback: смотрим по файловой системе
-        plot_dirs = sorted(OUTPUTS_DIR.glob("plots/*/top_popular.png"))
-        if not plot_dirs:
-            await update.message.reply_text(
-                "Нет готовых данных. Запустите pipeline: ./sh/start_2_1_fetch.sh && ./sh/start_2_2_extract.sh && ./sh/start_2_3_aggregates_plots.sh"
-            )
-            return
-        domain_ids = [p.parent.name for p in plot_dirs]
-    else:
-        domain_ids = [a["domain"] for a in aggs]
-
+    domain_ids = [p.parent.name for p in plot_dirs]
     keyboard = [
         [InlineKeyboardButton(d, callback_data=f"trends:{d}")]
         for d in domain_ids
@@ -122,16 +109,9 @@ async def _send_trends(domain_id: str, update: Update) -> None:
             await update.message.reply_text(text)
         return
 
-    caption_extra = ""
-    try:
-        store = _get_store()
-        agg = store.get_aggregated(domain_id)
-        if agg:
-            ts = agg.get("computed_at")
-            ts_str = ts.strftime("%Y-%m-%d %H:%M UTC") if ts else "неизвестно"
-            caption_extra = f"\nОбновлено: {ts_str}"
-    except Exception:
-        pass
+    ref_path = popular_path or growing_path or articles_path
+    ts_str = _plot_updated_at(ref_path) if ref_path else "неизвестно"
+    caption_extra = f"\nОбновлено: {ts_str}"
 
     media = []
     if articles_path:

@@ -20,7 +20,6 @@
 """
 from __future__ import annotations
 import argparse
-import json
 import logging
 import os
 import sys
@@ -34,20 +33,8 @@ from dotenv import load_dotenv
 load_dotenv(_root / ".env")
 
 from pipeline import render_plots
-
-
-def _setup_logging(level: str) -> None:
-    log_dir = _root / ".outputs" / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(log_dir / "render_plots.log", encoding="utf-8"),
-        ],
-    )
+from utils.cli import load_domains
+from utils.logging_setup import setup_logging
 
 
 def main():
@@ -59,22 +46,16 @@ def main():
                     help="Папка для графиков (по умолчанию .outputs)")
     ap.add_argument("--log-level", default="INFO",
                     choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    ap.add_argument("--log-format", default="text", choices=["text", "json"])
     args = ap.parse_args()
 
-    _setup_logging(args.log_level)
-
-    all_domains: list[dict] = json.loads(
-        (Path(args.domains_file)).read_text(encoding="utf-8")
+    setup_logging(
+        level=args.log_level,
+        log_file=_root / ".outputs" / "logs" / "render_plots.log",
+        fmt=args.log_format,
     )
-    if args.domains:
-        domain_set = set(args.domains)
-        domains = [d for d in all_domains if d["domain"] in domain_set]
-        unknown = domain_set - {d["domain"] for d in domains}
-        if unknown:
-            logging.error("Неизвестные домены: %s", unknown)
-            sys.exit(1)
-    else:
-        domains = all_domains
+
+    domains = load_domains(args.domains_file, args.domains)
 
     mongo_uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
     mongo_db = os.environ.get("MONGO_DB", "arxiv_trends")

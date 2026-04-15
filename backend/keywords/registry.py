@@ -42,16 +42,63 @@ def _v2(abstract: str) -> Dict[str, int]:
     return result
 
 
+_sklearn_extractor = None
+
+
+def _get_sklearn_extractor():
+    """Ленивая инициализация TfidfVectorizer."""
+    global _sklearn_extractor
+    if _sklearn_extractor is None:
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        from config.constants import STOPWORDS_EN
+        _sklearn_extractor = TfidfVectorizer(
+            stop_words=list(STOPWORDS_EN),
+            ngram_range=(1, 2),   # уни- и биграммы (ловит "neural network", "diffusion model")
+            min_df=1,
+            max_features=500,
+            token_pattern=r"[a-zA-Z][a-zA-Z0-9\-]{2,}",
+        )
+    return _sklearn_extractor
+
+
 def _v3(abstract: str) -> Dict[str, int]:
-    """3_tfidf_sklearn: TF-IDF через scikit-learn (требует fit на корпусе)."""
-    # TODO: обучить TfidfVectorizer на всём корпусе articles из БД,
-    #       затем трансформировать каждый абстракт и вернуть топ-N слов с весами.
-    # Пример:
-    #   from sklearn.feature_extraction.text import TfidfVectorizer
-    #   vec = TfidfVectorizer(stop_words="english", ngram_range=(1, 2))
-    #   tfidf = vec.fit_transform([abstract])
-    #   ...
-    raise NotImplementedError("3_tfidf_sklearn: не реализован")
+    """3_tfidf_sklearn: TF-IDF (sklearn) с биграммами для одного абстракта.
+
+    Использует per-document TF-IDF (fit+transform на одном тексте).
+    Главное преимущество перед v1 — захватывает биграммы типа
+    «neural network», «diffusion model», «attention mechanism».
+    Веса масштабируются в диапазон 1–100.
+    """
+    import numpy as np
+    from config.constants import STOPWORDS_EN
+
+    vec = _get_sklearn_extractor()
+    try:
+        tfidf_matrix = vec.fit_transform([abstract or ""])
+    except ValueError:
+        return {}
+
+    scores = tfidf_matrix.toarray()[0]
+    feature_names = vec.get_feature_names_out()
+
+    pairs = [(feature_names[i], scores[i]) for i in np.nonzero(scores)[0]]
+    if not pairs:
+        return {}
+
+    max_score = max(s for _, s in pairs)
+    result: Dict[str, int] = {}
+    for term, score in pairs:
+        # Фильтруем одиночные стоп-слова и слишком короткие термины
+        parts = term.split()
+        if any(p in STOPWORDS_EN for p in parts):
+            continue
+        if len(term) < 3:
+            continue
+        # Масштабируем: 1..100
+        count = max(1, int(score / max_score * 100))
+        result[term] = count
+
+    return result
 
 
 def _v4(abstract: str) -> Dict[str, int]:
@@ -79,17 +126,52 @@ def _v5(abstract: str) -> Dict[str, int]:
     raise NotImplementedError("5_keybert: не реализован")
 
 
+_yake_extractor = None
+
+
+def _get_yake_extractor():
+    """Ленивая инициализация YAKE."""
+    global _yake_extractor
+    if _yake_extractor is None:
+        import yake
+        _yake_extractor = yake.KeywordExtractor(
+            lan="en",
+            n=2,       # макс. длина n-граммы (биграммы)
+            dedupLim=0.7,
+            top=30,
+            features=None,
+        )
+    return _yake_extractor
+
+
 def _v6(abstract: str) -> Dict[str, int]:
-    """6_yake: статистическое извлечение через YAKE (без обучения)."""
-    # TODO: инициализировать yake.KeywordExtractor один раз,
-    #       YAKE возвращает (keyword, score) где меньше = важнее,
-    #       инвертировать: count = int(1 / score) или rank-based.
-    # Пример:
-    #   import yake
-    #   kw_extractor = yake.KeywordExtractor(lan="en", n=2, top=20)
-    #   keywords = kw_extractor.extract_keywords(abstract)
-    #   return {kw: int(1000 / (score + 1e-9)) for kw, score in keywords}
-    raise NotImplementedError("6_yake: не реализован")
+    """6_yake: статистическое извлечение через YAKE (без обучения на корпусе).
+
+    YAKE возвращает score где меньше = важнее. Конвертируем в rank-based счётчики:
+    топ-1 → 30, ..., топ-30 → 1. Стоп-слова фильтруются дополнительно.
+    """
+    from config.constants import STOPWORDS_EN
+
+    extractor = _get_yake_extractor()
+    try:
+        keywords = extractor.extract_keywords(abstract or "")
+    except Exception:
+        return {}
+
+    result: Dict[str, int] = {}
+    rank = len(keywords)
+    for phrase, _score in keywords:
+        phrase_lower = phrase.lower().strip()
+        # Убрать фразы где все слова — стоп-слова
+        words = phrase_lower.split()
+        if not words or all(w in STOPWORDS_EN for w in words):
+            continue
+        if len(phrase_lower) < 3:
+            continue
+        result[phrase_lower] = max(1, rank)
+        rank -= 1
+
+    return result
 
 
 # ------------------------------------------------------------------ реестр

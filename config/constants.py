@@ -1,6 +1,7 @@
 """Все константы пайплайна (централизованно)."""
 
 HISTORY_WEEKS = 52          # 1 год по неделям
+ARTICLES_TTL_DAYS = 730    # статьи старше этого числа дней удаляются при cleanup (2 года)
 
 # Версия экстрактора: см. backend/keywords/registry.py (ACTIVE_EXTRACTOR_KEY)
 # В БД хранится как целое число (ACTIVE_EXTRACTOR.db_id).

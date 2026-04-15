@@ -10,7 +10,12 @@ logger = logging.getLogger(__name__)
 
 class MongoStore:
     def __init__(self, mongo_uri: str, db_name: str):
-        self.client = MongoClient(mongo_uri)
+        self.client = MongoClient(
+            mongo_uri,
+            serverSelectionTimeoutMS=5_000,
+            socketTimeoutMS=30_000,
+            connectTimeoutMS=5_000,
+        )
         self.db = self.client[db_name]
         self.col = self.db["weekly_keyword_counts"]
         self.articles = self.db["articles"]
@@ -101,7 +106,7 @@ class MongoStore:
             {"$group": {"_id": "$week_start", "count": {"$sum": 1}}},
             {"$sort": {"_id": ASCENDING}},
         ]
-        return {r["_id"]: r["count"] for r in self.articles.aggregate(pipeline)}
+        return {r["_id"]: r["count"] for r in self.articles.aggregate(pipeline, maxTimeMS=20_000)}
 
     def get_top_keywords(
         self,
@@ -116,7 +121,7 @@ class MongoStore:
             {"$limit": top_n},
             {"$project": {"_id": 0, "keyword": 1, "count": 1}},
         ]
-        return list(self.col.aggregate(pipeline))
+        return list(self.col.aggregate(pipeline, maxTimeMS=10_000))
 
     def get_keyword_history(
         self,
@@ -277,7 +282,7 @@ class MongoStore:
             {"$group": {"_id": "$week_start", "count": {"$sum": 1}}},
             {"$sort": {"_id": ASCENDING}},
         ]
-        return {r["_id"]: r["count"] for r in self.articles.aggregate(pipeline)}
+        return {r["_id"]: r["count"] for r in self.articles.aggregate(pipeline, maxTimeMS=20_000)}
 
     def get_latest_article_update(self, domain: str) -> Optional[dt.datetime]:
         """Вернуть дату последнего обновления ключевых слов для домена."""

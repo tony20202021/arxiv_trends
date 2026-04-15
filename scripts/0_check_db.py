@@ -4,6 +4,8 @@
     python scripts/0_check_db.py coverage
     python scripts/0_check_db.py top [--top-n 20]
     python scripts/0_check_db.py latest
+    python scripts/0_check_db.py size
+    python scripts/0_check_db.py quality [--top-n 50]
     python scripts/0_check_db.py search --keyword "neural network" [--limit 10]
     python scripts/0_check_db.py --uri mongodb://host:port --db db_name coverage
 """
@@ -20,7 +22,7 @@ sys.path.insert(0, str(_root))
 from dotenv import load_dotenv
 load_dotenv(_root / ".env")
 
-from utils.diagnostics import print_coverage, print_top_keywords, print_latest, print_search
+from utils.diagnostics import print_coverage, print_top_keywords, print_latest, print_search, print_size, print_quality
 
 
 def main() -> None:
@@ -35,6 +37,10 @@ def main() -> None:
     top_p.add_argument("--top-n", type=int, default=10, dest="top_n")
 
     sub.add_parser("latest", help="Последняя запись в каждой коллекции")
+    sub.add_parser("size",   help="Размер коллекций и БД")
+
+    quality_p = sub.add_parser("quality", help="Качество экстракции ключевых слов")
+    quality_p.add_argument("--top-n", type=int, default=50, dest="top_n")
 
     search_p = sub.add_parser("search", help="Поиск статей по ключевому слову")
     search_p.add_argument("--keyword", required=True, help="Ключевое слово для поиска")
@@ -54,6 +60,10 @@ def main() -> None:
         print_coverage(args.uri, args.db)
     elif args.cmd == "latest":
         print_latest(args.uri, args.db)
+    elif args.cmd == "size":
+        print_size(args.uri, args.db)
+    elif args.cmd == "quality":
+        print_quality(args.uri, args.db, args.top_n)
     elif args.cmd == "search":
         print_search(args.uri, args.db, args.keyword, args.limit)
 

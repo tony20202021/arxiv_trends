@@ -234,6 +234,132 @@ def print_search(mongo_uri: str, mongo_db: str, keyword: str, limit: int = 10) -
         print(f"     «{snippet}»")
 
 
+def keyword_quality(mongo_uri: str, mongo_db: str, top_n: int = 50) -> dict:
+    """Статистика качества экстракции ключевых слов.
+
+    Возвращает:
+        - top_keywords: список (keyword, total_count) топ-N слов по всему корпусу
+        - zero_keywords_pct: % статей с пустыми ключевыми словами
+        - kw_per_article: статистика распределения числа ключевых слов на статью
+    """
+    store = MongoStore(mongo_uri, mongo_db)
+
+    # Топ-N ключевых слов по всему корпусу (не фильтруем стопслова — это диагностика)
+    top_raw = list(store.col.aggregate([
+        {"$group": {"_id": "$keyword", "total": {"$sum": "$count"}}},
+        {"$sort": {"total": -1}},
+        {"$limit": top_n},
+    ], maxTimeMS=30_000))
+    top_keywords = [(r["_id"], r["total"]) for r in top_raw]
+
+    # % статей без ключевых слов (keywords == null или пустой dict)
+    total_arts = store.articles.count_documents({})
+    zero_kw = store.articles.count_documents({
+        "$or": [{"keywords": None}, {"keywords": {}}]
+    })
+    processed = store.articles.count_documents({"keywords": {"$ne": None}})
+    zero_pct = (zero_kw / total_arts * 100) if total_arts else 0.0
+
+    # Распределение числа ключевых слов на статью (только обработанные)
+    kw_counts_raw = list(store.articles.aggregate([
+        {"$match": {"keywords": {"$ne": None}, "keywords": {"$ne": {}}}},
+        {"$project": {"n_keywords": {"$size": {"$objectToArray": "$keywords"}}}},
+        {"$group": {
+            "_id": None,
+            "min": {"$min": "$n_keywords"},
+            "max": {"$max": "$n_keywords"},
+            "avg": {"$avg": "$n_keywords"},
+            "count": {"$sum": 1},
+        }},
+    ], maxTimeMS=30_000))
+    kw_dist = kw_counts_raw[0] if kw_counts_raw else {}
+
+    return {
+        "top_keywords": top_keywords,
+        "total_articles": total_arts,
+        "processed_articles": processed,
+        "zero_keywords": zero_kw,
+        "zero_keywords_pct": zero_pct,
+        "kw_per_article": {
+            "min": kw_dist.get("min"),
+            "max": kw_dist.get("max"),
+            "avg": round(kw_dist.get("avg", 0.0), 1),
+            "count": kw_dist.get("count", 0),
+        },
+    }
+
+
+def print_quality(mongo_uri: str, mongo_db: str, top_n: int = 50) -> None:
+    data = keyword_quality(mongo_uri, mongo_db, top_n)
+
+    print(f"\n{'=== Качество экстракции ключевых слов ':=<60}")
+    total = data["total_articles"]
+    processed = data["processed_articles"]
+    zero = data["zero_keywords"]
+    print(f"  Статей всего:       {total:>10,}")
+    print(f"  Обработано:         {processed:>10,}  ({processed/total*100:.1f}%)" if total else "  Обработано: 0")
+    print(f"  Без ключевых слов:  {zero:>10,}  ({data['zero_keywords_pct']:.1f}%)")
+
+    kd = data["kw_per_article"]
+    if kd["count"]:
+        print(f"\n  Ключевых слов на статью (обработанные):")
+        print(f"    min={kd['min']}  max={kd['max']}  avg={kd['avg']}  n={kd['count']:,}")
+
+    print(f"\n{'=== Топ-'+str(top_n)+' ключевых слов (весь корпус) ':=<60}")
+    for i, (kw, cnt) in enumerate(data["top_keywords"], 1):
+        marker = "  [СТОП]" if kw in STOPWORDS_EN else ""
+        print(f"  {i:>3}. {kw:<35} {cnt:>10,}{marker}")
+
+
+def db_size(mongo_uri: str, mongo_db: str) -> dict:
+    """Размер каждой коллекции и БД в целом."""
+    store = MongoStore(mongo_uri, mongo_db)
+    db = store.db
+    result = {}
+    for col_name in ["articles", "weekly_keyword_counts", "aggregates"]:
+        stats = db.command("collStats", col_name)
+        result[col_name] = {
+            "documents": stats.get("count", 0),
+            "size_bytes": stats.get("size", 0),
+            "storage_bytes": stats.get("storageSize", 0),
+            "index_bytes": stats.get("totalIndexSize", 0),
+        }
+    db_stats = db.command("dbStats")
+    result["_db_total"] = {
+        "data_bytes": db_stats.get("dataSize", 0),
+        "storage_bytes": db_stats.get("storageSize", 0),
+        "index_bytes": db_stats.get("indexSize", 0),
+    }
+    return result
+
+
+def print_size(mongo_uri: str, mongo_db: str) -> None:
+    def _fmt(n: int) -> str:
+        for unit in ("B", "KB", "MB", "GB"):
+            if n < 1024:
+                return f"{n:.1f} {unit}"
+            n /= 1024
+        return f"{n:.1f} TB"
+
+    data = db_size(mongo_uri, mongo_db)
+    print(f"\n{'=== Размер коллекций ':=<60}")
+    fmt = f"  {{:<28}} {{:>8}} {{:>10}} {{:>10}} {{:>10}}"
+    print(fmt.format("Коллекция", "Документов", "Данные", "Хранилище", "Индексы"))
+    print("  " + "-" * 56)
+    for col in ["articles", "weekly_keyword_counts", "aggregates"]:
+        s = data[col]
+        print(fmt.format(
+            col,
+            f"{s['documents']:,}",
+            _fmt(s['size_bytes']),
+            _fmt(s['storage_bytes']),
+            _fmt(s['index_bytes']),
+        ))
+    t = data["_db_total"]
+    print("  " + "-" * 56)
+    print(f"  {'ИТОГО БД':<28} {'':>8} {_fmt(t['data_bytes']):>10} {_fmt(t['storage_bytes']):>10} {_fmt(t['index_bytes']):>10}")
+
+
 def _week_range(monday: dt.date) -> str:
     """'2026-03-16 – 2026-03-22'"""
     sunday = monday + dt.timedelta(days=6)

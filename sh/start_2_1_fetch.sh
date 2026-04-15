@@ -20,5 +20,5 @@ echo "Слежу за: backend/arxiv  backend/storage  backend/pipeline.py  conf
 echo "Ctrl+C для остановки."
 
 exec python -m watchfiles \
-    "python scripts/run_scheduler.py --step 1 --interval-hours 24 --from 2025-01-01 --to 2026-01-01 $*" \
+    "python scripts/run_scheduler.py --step 1 --interval-hours 24 $*" \
     backend/arxiv backend/storage backend/pipeline.py config utils scripts/run_scheduler.py

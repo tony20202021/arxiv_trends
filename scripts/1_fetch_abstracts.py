@@ -12,8 +12,6 @@
 """
 from __future__ import annotations
 import argparse
-import datetime as dt
-import json
 import logging
 import os
 import sys
@@ -27,28 +25,16 @@ from dotenv import load_dotenv
 load_dotenv(_root / ".env")
 
 from pipeline import fetch_abstracts
-
-
-def _setup_logging(level: str) -> None:
-    log_dir = _root / ".outputs" / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(log_dir / "fetch_abstracts.log", encoding="utf-8"),
-        ],
-    )
+from utils.cli import parse_date, load_domains, validate_date_range
+from utils.logging_setup import setup_logging
 
 
 def main():
     ap = argparse.ArgumentParser(description="Сервис 1: загрузка абстрактов из arXiv")
     ap.add_argument("--from", dest="week_from", required=True, metavar="YYYY-MM-DD",
-                    help="Начало диапазона (включительно)")
+                    type=parse_date, help="Начало диапазона (включительно)")
     ap.add_argument("--to", dest="week_to", required=True, metavar="YYYY-MM-DD",
-                    help="Конец диапазона (включительно)")
+                    type=parse_date, help="Конец диапазона (включительно)")
     ap.add_argument("--domains", nargs="+", metavar="DOMAIN",
                     help="Список доменов (по умолчанию — все из domains.json)")
     ap.add_argument("--max-articles", type=int, default=-1, dest="max_articles",
@@ -56,25 +42,21 @@ def main():
     ap.add_argument("--domains-file", default="config/domains.json")
     ap.add_argument("--log-level", default="INFO",
                     choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    ap.add_argument("--log-format", default="text", choices=["text", "json"],
+                    help="Формат логов: text (по умолчанию) или json")
     args = ap.parse_args()
 
-    _setup_logging(args.log_level)
-
-    week_from = dt.date.fromisoformat(args.week_from)
-    week_to = dt.date.fromisoformat(args.week_to)
-
-    all_domains: list[dict] = json.loads(
-        (Path(args.domains_file)).read_text(encoding="utf-8")
+    setup_logging(
+        level=args.log_level,
+        log_file=_root / ".outputs" / "logs" / "fetch_abstracts.log",
+        fmt=args.log_format,
     )
-    if args.domains:
-        domain_set = set(args.domains)
-        domains = [d for d in all_domains if d["domain"] in domain_set]
-        unknown = domain_set - {d["domain"] for d in domains}
-        if unknown:
-            logging.error("Неизвестные домены: %s", unknown)
-            sys.exit(1)
-    else:
-        domains = all_domains
+
+    week_from = args.week_from
+    week_to = args.week_to
+    validate_date_range(week_from, week_to)
+
+    domains = load_domains(args.domains_file, args.domains)
 
     mongo_uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
     mongo_db = os.environ.get("MONGO_DB", "arxiv_trends")
