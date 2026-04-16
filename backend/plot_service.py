@@ -133,9 +133,12 @@ def render_plots(
         growing_counts = _last_row(pivot, growing)
         growing_pcts   = _last_row(pivot_pct, growing)
 
+        def _title(short: str) -> str:
+            return f"{dname}\n{short}\n\n[экстрактор: {ext_label}]"
+
         plot_keywords_over_time(
             pivot, popular,
-            f"{domain['title']} — Top-{TOP_N} popular (last week)  [{ext_label}]",
+            _title(f"Top-{TOP_N} popular (last week)"),
             base / "top_popular.png",
             keyword_styles=styles,
         )
@@ -143,7 +146,7 @@ def render_plots(
                             counts=popular_counts, pcts=popular_pcts)
         plot_keywords_over_time(
             pivot, growing,
-            f"{domain['title']} — Top-{TOP_N} growing (last {GROWTH_WINDOW_WEEKS} weeks)  [{ext_label}]",
+            _title(f"Top-{TOP_N} growing (last {GROWTH_WINDOW_WEEKS} weeks)"),
             base / "top_growing.png",
             keyword_styles=styles,
             regression_window=GROWTH_WINDOW_WEEKS,
@@ -153,13 +156,13 @@ def render_plots(
 
         plot_article_counts(
             art_counts,
-            f"{domain['title']} — Articles per week",
+            f"{dname}\nArticles per week",
             base / "articles_per_week.png",
         )
 
         plot_keywords_over_time(
             pivot_pct, popular,
-            f"{domain['title']} — Top-{TOP_N} popular, % of weekly articles  [{ext_label}]",
+            _title(f"Top-{TOP_N} popular, % of weekly articles"),
             base / "top_popular_pct.png",
             keyword_styles=styles,
             ylabel="% of weekly articles",
@@ -168,7 +171,7 @@ def render_plots(
                             counts=popular_counts, pcts=popular_pcts)
         plot_keywords_over_time(
             pivot_pct, growing,
-            f"{domain['title']} — Top-{TOP_N} growing, % of weekly articles  [{ext_label}]",
+            _title(f"Top-{TOP_N} growing, % of weekly articles"),
             base / "top_growing_pct.png",
             keyword_styles=styles,
             regression_window=GROWTH_WINDOW_WEEKS,
@@ -211,9 +214,12 @@ def render_plots(
             all_growing_counts = _last_row(all_pivot, all_growing)
             all_growing_pcts   = _last_row(all_pivot_pct, all_growing)
 
+            def _atitle(short: str) -> str:
+                return f"_all\n{short}\n\n[экстрактор: {all_ext_label}]"
+
             plot_keywords_over_time(
                 all_pivot, all_popular,
-                f"All domains — Top-{TOP_N} popular (last week)  [{all_ext_label}]",
+                _atitle(f"Top-{TOP_N} popular (last week)"),
                 base_all / "top_popular.png",
                 keyword_styles=styles,
             )
@@ -221,7 +227,7 @@ def render_plots(
                                 counts=all_popular_counts, pcts=all_popular_pcts)
             plot_keywords_over_time(
                 all_pivot, all_growing,
-                f"All domains — Top-{TOP_N} growing (last {GROWTH_WINDOW_WEEKS} weeks)  [{all_ext_label}]",
+                _atitle(f"Top-{TOP_N} growing (last {GROWTH_WINDOW_WEEKS} weeks)"),
                 base_all / "top_growing.png",
                 keyword_styles=styles,
                 regression_window=GROWTH_WINDOW_WEEKS,
@@ -230,12 +236,12 @@ def render_plots(
                                 counts=all_growing_counts, pcts=all_growing_pcts)
             plot_article_counts(
                 all_art_counts,
-                "All domains — Articles per week",
+                "_all\nArticles per week",
                 base_all / "articles_per_week.png",
             )
             plot_keywords_over_time(
                 all_pivot_pct, all_popular,
-                f"All domains — Top-{TOP_N} popular, % of weekly articles  [{all_ext_label}]",
+                _atitle(f"Top-{TOP_N} popular, % of weekly articles"),
                 base_all / "top_popular_pct.png",
                 keyword_styles=styles,
                 ylabel="% of weekly articles",
@@ -244,7 +250,7 @@ def render_plots(
                                 counts=all_popular_counts, pcts=all_popular_pcts)
             plot_keywords_over_time(
                 all_pivot_pct, all_growing,
-                f"All domains — Top-{TOP_N} growing, % of weekly articles  [{all_ext_label}]",
+                _atitle(f"Top-{TOP_N} growing, % of weekly articles"),
                 base_all / "top_growing_pct.png",
                 keyword_styles=styles,
                 regression_window=GROWTH_WINDOW_WEEKS,

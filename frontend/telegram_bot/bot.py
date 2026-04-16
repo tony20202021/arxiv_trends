@@ -41,6 +41,19 @@ logger = logging.getLogger(__name__)
 
 OUTPUTS_DIR = Path(os.environ.get("OUTPUTS_DIR", ".outputs"))
 
+# Загружаем названия доменов из domains.json: slug → title
+def _load_domain_titles() -> dict[str, str]:
+    try:
+        from slugify import slugify
+        import json as _json
+        cfg = Path(__file__).parent.parent.parent / "config" / "domains.json"
+        domains = _json.loads(cfg.read_text(encoding="utf-8"))
+        return {slugify(d["domain"]): d["title"] for d in domains}
+    except Exception:
+        return {}
+
+_DOMAIN_TITLES = _load_domain_titles()
+
 
 def _resolve_web_url() -> str:
     """Вернуть публичный URL веб-дашборда.
@@ -190,6 +203,14 @@ async def _send_trends(domain_id: str, update: Update) -> None:
 
     reply = update.callback_query.message if update.callback_query else update.message
 
+    # 0. Полное название домена
+    title = _DOMAIN_TITLES.get(domain_id, "")
+    header = f"{domain_id}"
+    if title:
+        header += f"\n{title}"
+    header += f"\nОбновлено: {ts_str}"
+    await reply.reply_text(header)
+
     # 1. Статей по неделям
     if plots["articles"]:
         await reply.reply_photo(
@@ -212,7 +233,8 @@ async def _send_trends(domain_id: str, update: Update) -> None:
         data = _read_keywords_data(plots["popular"])
         msg = _format_keywords_message("Top-популярные", data)
         if msg:
-            await reply.reply_text(msg)
+            domain_line = f"({title})" if title else ""
+            await reply.reply_text(f"{domain_id} {domain_line}\n{msg}".strip())
 
     # 3. Top-растущие: абс. → % → слова
     if plots["growing"]:
@@ -229,7 +251,8 @@ async def _send_trends(domain_id: str, update: Update) -> None:
         data = _read_keywords_data(plots["growing"])
         msg = _format_keywords_message("Top-растущие", data)
         if msg:
-            await reply.reply_text(msg)
+            domain_line = f"({title})" if title else ""
+            await reply.reply_text(f"{domain_id} {domain_line}\n{msg}".strip())
 
 
 async def cmd_trends(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

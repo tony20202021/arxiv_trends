@@ -20,6 +20,25 @@
       border-radius: 999px; padding: .2rem .8rem; font-size: .85rem;
     }
 
+    /* --- Плашка _all --- */
+    .all-section {
+      padding: 1.5rem 2rem 0;
+      display: flex;
+      justify-content: center;
+    }
+    .card-all {
+      background: #fff; border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+      overflow: hidden;
+      width: calc(100% / 3 - 1rem);
+    }
+    @media (max-width: 1100px) { .card-all { width: calc(50% - 1rem); } }
+    @media (max-width: 700px)  { .card-all { width: 100%; } }
+    .card-all .card-header {
+      background: #1a1a2e;
+    }
+
+    /* --- Поиск --- */
     .search-bar {
       max-width: 600px; margin: 1.5rem auto;
       padding: 0 1rem;
@@ -30,16 +49,21 @@
       font-size: 1rem;
     }
 
+    /* --- Сетка доменов: 3 колонки --- */
     .grid {
-      display: flex; flex-wrap: wrap; gap: 1.5rem;
-      padding: 0 1.5rem 2rem;
-      justify-content: center;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+      padding: 0 2rem 2rem;
     }
+    @media (max-width: 1100px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 700px)  { .grid { grid-template-columns: 1fr; } }
 
+    /* --- Карточка --- */
     .card {
       background: #fff; border-radius: 12px;
       box-shadow: 0 2px 8px rgba(0,0,0,.08);
-      width: 340px; overflow: hidden;
+      overflow: hidden;
       transition: box-shadow .2s;
     }
     .card:hover { box-shadow: 0 4px 18px rgba(0,0,0,.15); }
@@ -47,10 +71,10 @@
     .card-header {
       background: #0f3460; color: #eee;
       padding: .7rem 1rem;
-      display: flex; align-items: center; justify-content: space-between;
     }
     .card-header .domain-id { font-weight: 600; font-size: 1rem; }
-    .card-header .updated { font-size: .7rem; opacity: .8; }
+    .card-header .domain-title { font-size: .8rem; opacity: .8; margin-top: .15rem; }
+    .card-header .updated { font-size: .7rem; opacity: .65; margin-top: .1rem; }
 
     .tabs {
       display: flex; border-bottom: 1px solid #eee;
@@ -93,6 +117,76 @@
   <div class="badge">{{ total }} доменов</div>
 </header>
 
+{% macro render_card(d, id_prefix) %}
+{% set _first = namespace(found=false) %}
+<div class="tabs">
+  {% if d.has_popular %}{% set _first.found = true %}
+  <div class="tab active" onclick="switchTab(this, '{{ id_prefix }}', 'popular')">Популярные</div>
+  {% endif %}
+  {% if d.has_growing %}
+  <div class="tab {% if not _first.found %}active{% set _first.found = true %}{% endif %}" onclick="switchTab(this, '{{ id_prefix }}', 'growing')">Растущие</div>
+  {% endif %}
+  {% if d.has_popular_pct %}
+  <div class="tab {% if not _first.found %}active{% set _first.found = true %}{% endif %}" onclick="switchTab(this, '{{ id_prefix }}', 'popular_pct')">Поп. %</div>
+  {% endif %}
+  {% if d.has_growing_pct %}
+  <div class="tab {% if not _first.found %}active{% set _first.found = true %}{% endif %}" onclick="switchTab(this, '{{ id_prefix }}', 'growing_pct')">Рост %</div>
+  {% endif %}
+  {% if d.has_articles %}
+  <div class="tab {% if not _first.found %}active{% endif %}" onclick="switchTab(this, '{{ id_prefix }}', 'articles')">Статьи/нед.</div>
+  {% endif %}
+</div>
+
+{% set _active = namespace(found=false) %}
+{% if d.has_popular %}{% set _active.found = true %}
+<div class="tab-content active" id="{{ id_prefix }}-popular">
+  <a href="/plots/{{ d.id }}/top_popular.png" target="_blank">
+    <img src="/plots/{{ d.id }}/top_popular.png" alt="top popular {{ d.id }}" loading="lazy">
+  </a>
+</div>
+{% endif %}
+{% if d.has_growing %}
+<div class="tab-content {% if not _active.found %}active{% set _active.found = true %}{% endif %}" id="{{ id_prefix }}-growing">
+  <a href="/plots/{{ d.id }}/top_growing.png" target="_blank">
+    <img src="/plots/{{ d.id }}/top_growing.png" alt="top growing {{ d.id }}" loading="lazy">
+  </a>
+</div>
+{% endif %}
+{% if d.has_popular_pct %}
+<div class="tab-content {% if not _active.found %}active{% set _active.found = true %}{% endif %}" id="{{ id_prefix }}-popular_pct">
+  <a href="/plots/{{ d.id }}/top_popular_pct.png" target="_blank">
+    <img src="/plots/{{ d.id }}/top_popular_pct.png" alt="top popular pct {{ d.id }}" loading="lazy">
+  </a>
+</div>
+{% endif %}
+{% if d.has_growing_pct %}
+<div class="tab-content {% if not _active.found %}active{% set _active.found = true %}{% endif %}" id="{{ id_prefix }}-growing_pct">
+  <a href="/plots/{{ d.id }}/top_growing_pct.png" target="_blank">
+    <img src="/plots/{{ d.id }}/top_growing_pct.png" alt="top growing pct {{ d.id }}" loading="lazy">
+  </a>
+</div>
+{% endif %}
+{% if d.has_articles %}
+<div class="tab-content {% if not _active.found %}active{% endif %}" id="{{ id_prefix }}-articles">
+  <a href="/plots/{{ d.id }}/articles_per_week.png" target="_blank">
+    <img src="/plots/{{ d.id }}/articles_per_week.png" alt="articles {{ d.id }}" loading="lazy">
+  </a>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% if domain_all %}
+<div class="all-section">
+  <div class="card card-all">
+    <div class="card-header">
+      <div class="domain-id">Все домены (_all)</div>
+      {% if domain_all.updated %}<div class="updated">{{ domain_all.updated }}</div>{% endif %}
+    </div>
+    {{ render_card(domain_all, "_all") }}
+  </div>
+</div>
+{% endif %}
+
 <div class="search-bar">
   <input type="text" id="search" placeholder="Поиск домена..." oninput="filterCards(this.value)">
 </div>
@@ -102,69 +196,10 @@
   {% for d in domains %}
   <div class="card" data-domain="{{ d.id }}">
     <div class="card-header">
-      <span class="domain-id">{{ d.id }}</span>
-      {% if d.updated %}<span class="updated">{{ d.updated }}</span>{% endif %}
+      <div class="domain-id">{{ d.id }}{% if d.title %} <span style="font-weight:400;opacity:.8">({{ d.title }})</span>{% endif %}</div>
+      {% if d.updated %}<div class="updated">{{ d.updated }}</div>{% endif %}
     </div>
-
-    {% set _first = namespace(found=false) %}
-    <div class="tabs">
-      {% if d.has_popular %}{% set _first.found = true %}
-      <div class="tab active" onclick="switchTab(this, '{{ d.id }}', 'popular')">Популярные</div>
-      {% endif %}
-      {% if d.has_growing %}
-      <div class="tab {% if not _first.found %}active{% set _first.found = true %}{% endif %}" onclick="switchTab(this, '{{ d.id }}', 'growing')">Растущие</div>
-      {% endif %}
-      {% if d.has_popular_pct %}
-      <div class="tab {% if not _first.found %}active{% set _first.found = true %}{% endif %}" onclick="switchTab(this, '{{ d.id }}', 'popular_pct')">Поп. %</div>
-      {% endif %}
-      {% if d.has_growing_pct %}
-      <div class="tab {% if not _first.found %}active{% set _first.found = true %}{% endif %}" onclick="switchTab(this, '{{ d.id }}', 'growing_pct')">Рост %</div>
-      {% endif %}
-      {% if d.has_articles %}
-      <div class="tab {% if not _first.found %}active{% endif %}" onclick="switchTab(this, '{{ d.id }}', 'articles')">Статьи/нед.</div>
-      {% endif %}
-    </div>
-
-    {% set _active = namespace(found=false) %}
-    {% if d.has_popular %}{% set _active.found = true %}
-    <div class="tab-content active" id="{{ d.id }}-popular">
-      <a href="/plots/{{ d.id }}/top_popular.png" target="_blank">
-        <img src="/plots/{{ d.id }}/top_popular.png" alt="top popular {{ d.id }}" loading="lazy">
-      </a>
-    </div>
-    {% endif %}
-
-    {% if d.has_growing %}
-    <div class="tab-content {% if not _active.found %}active{% set _active.found = true %}{% endif %}" id="{{ d.id }}-growing">
-      <a href="/plots/{{ d.id }}/top_growing.png" target="_blank">
-        <img src="/plots/{{ d.id }}/top_growing.png" alt="top growing {{ d.id }}" loading="lazy">
-      </a>
-    </div>
-    {% endif %}
-
-    {% if d.has_popular_pct %}
-    <div class="tab-content {% if not _active.found %}active{% set _active.found = true %}{% endif %}" id="{{ d.id }}-popular_pct">
-      <a href="/plots/{{ d.id }}/top_popular_pct.png" target="_blank">
-        <img src="/plots/{{ d.id }}/top_popular_pct.png" alt="top popular pct {{ d.id }}" loading="lazy">
-      </a>
-    </div>
-    {% endif %}
-
-    {% if d.has_growing_pct %}
-    <div class="tab-content {% if not _active.found %}active{% set _active.found = true %}{% endif %}" id="{{ d.id }}-growing_pct">
-      <a href="/plots/{{ d.id }}/top_growing_pct.png" target="_blank">
-        <img src="/plots/{{ d.id }}/top_growing_pct.png" alt="top growing pct {{ d.id }}" loading="lazy">
-      </a>
-    </div>
-    {% endif %}
-
-    {% if d.has_articles %}
-    <div class="tab-content {% if not _active.found %}active{% endif %}" id="{{ d.id }}-articles">
-      <a href="/plots/{{ d.id }}/articles_per_week.png" target="_blank">
-        <img src="/plots/{{ d.id }}/articles_per_week.png" alt="articles {{ d.id }}" loading="lazy">
-      </a>
-    </div>
-    {% endif %}
+    {{ render_card(d, d.id) }}
   </div>
   {% endfor %}
 </div>
@@ -179,7 +214,7 @@
 
 <script>
 function switchTab(el, domainId, tab) {
-  const card = el.closest('.card');
+  const card = el.closest('.card, .card-all');
   card.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   card.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
@@ -189,9 +224,8 @@ function switchTab(el, domainId, tab) {
 
 function filterCards(query) {
   const q = query.toLowerCase();
-  document.querySelectorAll('.card').forEach(card => {
-    const match = card.dataset.domain.includes(q);
-    card.style.display = match ? '' : 'none';
+  document.querySelectorAll('#grid .card').forEach(card => {
+    card.style.display = card.dataset.domain.includes(q) ? '' : 'none';
   });
 }
 </script>

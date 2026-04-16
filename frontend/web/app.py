@@ -16,19 +16,31 @@
 """
 from __future__ import annotations
 import datetime as dt
+import json
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, FileResponse, Response
-from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader
+from slugify import slugify
 
 load_dotenv()
 
 _here = Path(__file__).parent
+_root = _here.parent.parent
 OUTPUTS_DIR = Path(os.environ.get("OUTPUTS_DIR", ".outputs"))
+
+# Загружаем titles из domains.json: slug → title
+def _load_titles() -> dict[str, str]:
+    try:
+        domains = json.loads((_root / "config" / "domains.json").read_text(encoding="utf-8"))
+        return {slugify(d["domain"]): d["title"] for d in domains}
+    except Exception:
+        return {}
+
+_TITLES = _load_titles()
 
 app = FastAPI(title="arXiv Trends Dashboard", docs_url=None, redoc_url=None)
 
@@ -69,6 +81,7 @@ def _domain_data() -> list[dict]:
         ref = next((p for p in all_plots if p.exists()), None)
         domains.append({
             "id": d.name,
+            "title": _TITLES.get(d.name, ""),
             "updated": mtime_str(ref) if ref else "",
             "has_popular":      popular.exists(),
             "has_growing":      growing.exists(),
@@ -82,9 +95,11 @@ def _domain_data() -> list[dict]:
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
-    domains = _domain_data()
+    all_domains = _domain_data()
+    domain_all  = next((d for d in all_domains if d["id"] == "_all"), None)
+    domains     = [d for d in all_domains if d["id"] != "_all"]
     tpl = _jinja.get_template("index.html")
-    html = tpl.render(domains=domains, total=len(domains))
+    html = tpl.render(domains=domains, domain_all=domain_all, total=len(domains))
     return HTMLResponse(html)
 
 
