@@ -42,6 +42,7 @@ def plot_keywords_over_time(
     out_path: Path,
     keyword_styles: Optional[Dict[str, Tuple[str, str]]] = None,
     regression_window: Optional[int] = None,
+    ylabel: str = "Count",
 ):
     """Построить линейный график ключевых слов по неделям.
 
@@ -102,7 +103,7 @@ def plot_keywords_over_time(
 
     plt.title(title)
     plt.xlabel("Week")
-    plt.ylabel("Count")
+    plt.ylabel(ylabel)
     plt.legend(fontsize=8, ncols=2)
     fig.autofmt_xdate()
     fig.savefig(out_path, bbox_inches="tight")

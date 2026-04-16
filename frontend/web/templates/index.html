@@ -105,32 +105,52 @@
       {% if d.updated %}<span class="updated">{{ d.updated }}</span>{% endif %}
     </div>
 
+    {% set _first = namespace(found=false) %}
     <div class="tabs">
-      {% if d.has_popular %}
+      {% if d.has_popular %}{% set _first.found = true %}
       <div class="tab active" onclick="switchTab(this, '{{ d.id }}', 'popular')">Популярные</div>
       {% endif %}
       {% if d.has_growing %}
-      <div class="tab {% if not d.has_popular %}active{% endif %}" onclick="switchTab(this, '{{ d.id }}', 'growing')">Растущие</div>
+      <div class="tab {% if not _first.found %}active{% set _first.found = true %}{% endif %}" onclick="switchTab(this, '{{ d.id }}', 'growing')">Растущие</div>
+      {% endif %}
+      {% if d.has_popular_pct %}
+      <div class="tab {% if not _first.found %}active{% set _first.found = true %}{% endif %}" onclick="switchTab(this, '{{ d.id }}', 'popular_pct')">Поп. %</div>
+      {% endif %}
+      {% if d.has_growing_pct %}
+      <div class="tab {% if not _first.found %}active{% set _first.found = true %}{% endif %}" onclick="switchTab(this, '{{ d.id }}', 'growing_pct')">Рост %</div>
       {% endif %}
       {% if d.has_articles %}
-      <div class="tab {% if not d.has_popular and not d.has_growing %}active{% endif %}" onclick="switchTab(this, '{{ d.id }}', 'articles')">Статьи/нед.</div>
+      <div class="tab {% if not _first.found %}active{% endif %}" onclick="switchTab(this, '{{ d.id }}', 'articles')">Статьи/нед.</div>
       {% endif %}
     </div>
 
-    {% if d.has_popular %}
-    <div class="tab-content {% if d.has_popular %}active{% endif %}" id="{{ d.id }}-popular">
+    {% set _active = namespace(found=false) %}
+    {% if d.has_popular %}{% set _active.found = true %}
+    <div class="tab-content active" id="{{ d.id }}-popular">
       <img src="/plots/{{ d.id }}/top_popular.png" alt="top popular {{ d.id }}" loading="lazy">
     </div>
     {% endif %}
 
     {% if d.has_growing %}
-    <div class="tab-content {% if not d.has_popular %}active{% endif %}" id="{{ d.id }}-growing">
+    <div class="tab-content {% if not _active.found %}active{% set _active.found = true %}{% endif %}" id="{{ d.id }}-growing">
       <img src="/plots/{{ d.id }}/top_growing.png" alt="top growing {{ d.id }}" loading="lazy">
     </div>
     {% endif %}
 
+    {% if d.has_popular_pct %}
+    <div class="tab-content {% if not _active.found %}active{% set _active.found = true %}{% endif %}" id="{{ d.id }}-popular_pct">
+      <img src="/plots/{{ d.id }}/top_popular_pct.png" alt="top popular pct {{ d.id }}" loading="lazy">
+    </div>
+    {% endif %}
+
+    {% if d.has_growing_pct %}
+    <div class="tab-content {% if not _active.found %}active{% set _active.found = true %}{% endif %}" id="{{ d.id }}-growing_pct">
+      <img src="/plots/{{ d.id }}/top_growing_pct.png" alt="top growing pct {{ d.id }}" loading="lazy">
+    </div>
+    {% endif %}
+
     {% if d.has_articles %}
-    <div class="tab-content {% if not d.has_popular and not d.has_growing %}active{% endif %}" id="{{ d.id }}-articles">
+    <div class="tab-content {% if not _active.found %}active{% endif %}" id="{{ d.id }}-articles">
       <img src="/plots/{{ d.id }}/articles_per_week.png" alt="articles {{ d.id }}" loading="lazy">
     </div>
     {% endif %}

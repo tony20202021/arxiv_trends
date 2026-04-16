@@ -27,3 +27,4 @@ yake>=0.4.8           # v6: YAKE без обучения (pip install yake)
 # Dev / тесты
 pytest>=8.0.0
 pytest-mock>=3.14.0
+mongomock>=4.3.0        # интеграционные тесты MongoStore без реального MongoDB

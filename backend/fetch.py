@@ -48,90 +48,91 @@ def _fetch_range(
 ) -> tuple[list[dict], bool]:
     """Загрузить статьи за один диапазон дат с пагинацией.
 
-    Если при пагинации start достигает ARXIV_OFFSET_LIMIT — автоматически
-    разбивает диапазон по дням и рекурсивно вызывает себя для каждого дня.
-
-    Глубина рекурсии: максимум 1 уровень. Повторный вызов происходит только
-    когда date_from == date_to (один день), и в этом случае рекурсия не входит
-    в ветку day-by-day — она сразу выходит с truncated=True. Переполнения стека
-    не возникает при любом количестве недель.
+    Если start достигает ARXIV_OFFSET_LIMIT — разбивает диапазон по дням
+    и обрабатывает каждый день итеративно (без рекурсии).
+    Минимальная единица дробления — один день: если лимит достигнут для одного
+    дня, возвращает truncated=True и прерывает обработку.
 
     Returns:
         (entries, truncated)
     """
-    lo = date_from.strftime("%Y%m%d0000")
-    hi = date_to.strftime("%Y%m%d2359")
-
     entries: list[dict] = []
-    api_start = 0
     truncated = False
 
-    while True:
-        page_size = ARXIV_PAGE_SIZE
-        if max_articles != -1:
-            remaining = max_articles - len(entries)
-            if remaining <= 0:
-                break
-            page_size = min(ARXIV_PAGE_SIZE, remaining)
+    # Очередь диапазонов: (d_from, d_to, sub_prefix)
+    queue: list[tuple[dt.date, dt.date, str]] = [(date_from, date_to, prefix)]
 
-        if api_start >= ARXIV_OFFSET_LIMIT:
-            if date_from == date_to:
-                logger.warning("  Лимит offset при запросе одного дня %s, прерываем", date_from)
-                truncated = True
-                break
+    while queue:
+        d_from, d_to, pfx = queue.pop(0)
 
-            logger.info("  Лимит offset start=%d для %s…%s — разбиваем по дням",
-                        api_start, date_from, date_to)
-            n_days = (date_to - date_from).days + 1
-            day = date_from
-            while day <= date_to:
-                d_idx = (day - date_from).days + 1
-                day_entries, day_trunc = _fetch_range(
-                    api, search_query, day, day, max_articles,
-                    prefix=f"{prefix}день {d_idx}/{n_days} ",
-                )
-                entries.extend(day_entries)
-                if day_trunc:
-                    truncated = True
-                if max_articles != -1 and len(entries) >= max_articles:
-                    truncated = True
-                    break
-                day += dt.timedelta(days=1)
-            break
-
-        try:
-            feed = api.query(
-                search_query=search_query,
-                start=api_start,
-                max_results=page_size,
-                sort_by="submittedDate",
-                sort_order="descending",
-                submitted_date_range=(lo, hi),
-            )
-        except Exception as exc:
-            logger.warning("  Пагинация прервана на start=%d (%s…%s): %s",
-                           api_start, date_from, date_to, exc)
+        if max_articles != -1 and len(entries) >= max_articles:
             truncated = True
             break
 
-        batch = api.parse_entries(feed)
-        if not batch:
-            break
+        lo = d_from.strftime("%Y%m%d0000")
+        hi = d_to.strftime("%Y%m%d2359")
+        api_start = 0
 
-        entries.extend(batch)
-        api_start += len(batch)
+        while True:
+            page_size = ARXIV_PAGE_SIZE
+            if max_articles != -1:
+                remaining = max_articles - len(entries)
+                if remaining <= 0:
+                    truncated = True
+                    break
+                page_size = min(ARXIV_PAGE_SIZE, remaining)
 
-        total_results = int(feed.get("feed", {}).get("opensearch_totalresults", 0) or 0)
-        if total_results:
-            logger.info("  %s[%s…%s] start=%d  получено %d, итого %d из %d",
-                        prefix, date_from, date_to, api_start - len(batch),
-                        len(batch), len(entries), total_results)
-        else:
-            logger.info("  %s[%s…%s] start=%d  получено %d, итого %d",
-                        prefix, date_from, date_to, api_start - len(batch), len(batch), len(entries))
+            if api_start >= ARXIV_OFFSET_LIMIT:
+                if d_from == d_to:
+                    # Один день — дальше дробить некуда
+                    logger.warning("  Лимит offset при запросе одного дня %s, прерываем", d_from)
+                    truncated = True
+                else:
+                    # Разбиваем на дни и добавляем в начало очереди
+                    n_days = (d_to - d_from).days + 1
+                    logger.info("  Лимит offset start=%d для %s…%s — разбиваем по %d дням",
+                                api_start, d_from, d_to, n_days)
+                    days = [
+                        (d_from + dt.timedelta(days=i), d_from + dt.timedelta(days=i),
+                         f"{pfx}день {i + 1}/{n_days} ")
+                        for i in range(n_days)
+                    ]
+                    queue[0:0] = days  # вставляем в начало, сохраняя порядок
+                break
 
-        if len(batch) < page_size:
-            break
+            try:
+                feed = api.query(
+                    search_query=search_query,
+                    start=api_start,
+                    max_results=page_size,
+                    sort_by="submittedDate",
+                    sort_order="descending",
+                    submitted_date_range=(lo, hi),
+                )
+            except Exception as exc:
+                logger.warning("  Пагинация прервана на start=%d (%s…%s): %s",
+                               api_start, d_from, d_to, exc)
+                truncated = True
+                break
+
+            batch = api.parse_entries(feed)
+            if not batch:
+                break
+
+            entries.extend(batch)
+            api_start += len(batch)
+
+            total_results = int(feed.get("feed", {}).get("opensearch_totalresults", 0) or 0)
+            if total_results:
+                logger.info("  %s[%s…%s] start=%d  получено %d, итого %d из %d",
+                            pfx, d_from, d_to, api_start - len(batch),
+                            len(batch), len(entries), total_results)
+            else:
+                logger.info("  %s[%s…%s] start=%d  получено %d, итого %d",
+                            pfx, d_from, d_to, api_start - len(batch), len(batch), len(entries))
+
+            if len(batch) < page_size:
+                break
 
     return entries, truncated
 
@@ -195,7 +196,7 @@ def fetch_abstracts(
             if weeks_left > 0:
                 avg_sec = elapsed_sec / w_idx
                 eta_sec = avg_sec * weeks_left
-                eta_clock = (dt.datetime.now() + dt.timedelta(seconds=eta_sec)).strftime("%H:%M")
+                eta_clock = (dt.datetime.now(dt.timezone.utc).astimezone() + dt.timedelta(seconds=eta_sec)).strftime("%H:%M %Z")
                 logger.info(
                     "  (%d/%d) прошло %s, осталось ~%s (ETA ~%s)",
                     w_idx, n_weeks,

@@ -190,8 +190,7 @@ class TestRecomputePlots:
         return store
 
     def _run(self, domains, store, force=False):
-        with patch("pipeline.MongoStore", return_value=store), \
-             patch("pipeline.plot_keywords_over_time"):
+        with patch("aggregate.MongoStore", return_value=store):
             from pipeline import recompute_aggregates
             return recompute_aggregates(
                 domains=domains,
@@ -333,9 +332,9 @@ class TestRenderPlots:
         return store
 
     def _run(self, domains, store, tmp_path):
-        with patch("pipeline.MongoStore", return_value=store), \
-             patch("pipeline.plot_keywords_over_time"), \
-             patch("pipeline.plot_article_counts"):
+        with patch("plot_service.MongoStore", return_value=store), \
+             patch("plot_service.plot_keywords_over_time"), \
+             patch("plot_service.plot_article_counts"):
             from pipeline import render_plots
             return render_plots(
                 domains=domains,
@@ -365,7 +364,7 @@ class TestRenderPlots:
             rows=self._make_rows(),
         )
         results, _ = self._run([_make_domain()], store, tmp_path)
-        assert results["cs_lg"]["plots"] == 3
+        assert results["cs_lg"]["plots"] == 5  # popular, growing, articles, popular_pct, growing_pct
 
     def test_renders_all_domains_summary(self, tmp_path):
         store = self._make_store(
@@ -375,7 +374,7 @@ class TestRenderPlots:
         )
         results, _ = self._run([_make_domain()], store, tmp_path)
         assert "_all" in results
-        assert results["_all"]["plots"] == 3
+        assert results["_all"]["plots"] == 5
 
     def test_does_not_call_save_aggregated(self, tmp_path):
         store = self._make_store(
@@ -418,8 +417,8 @@ class TestFetchAbstracts:
         api.query.return_value = MagicMock()
         api.parse_entries.side_effect = [entries or [], []]  # second call → stop pagination
 
-        with patch("pipeline.MongoStore", return_value=store), \
-             patch("pipeline.ArxivApiClient", return_value=api):
+        with patch("fetch.MongoStore", return_value=store), \
+             patch("fetch.ArxivApiClient", return_value=api):
             from pipeline import fetch_abstracts
             stats = fetch_abstracts(
                 domains=[_make_domain()],
@@ -486,7 +485,7 @@ class TestExtractKeywordsBatch:
         # get_articles_for_extraction yields each batch then empty list per round
         store.get_articles_for_extraction.side_effect = [b for b in articles_batches] + [[]]
 
-        with patch("pipeline.MongoStore", return_value=store):
+        with patch("extract.MongoStore", return_value=store):
             from pipeline import extract_keywords_batch
             stats = extract_keywords_batch(
                 domains=[_make_domain()],
@@ -613,7 +612,7 @@ class TestDateFromFiltering:
         store = self._make_store([self._WS_OLD, self._WS_NEW])
         cutoff = dt.date(2024, 1, 1)
 
-        with patch("pipeline.MongoStore", return_value=store):
+        with patch("aggregate.MongoStore", return_value=store):
             from pipeline import recompute_aggregates
             results = recompute_aggregates(
                 domains=[_make_domain()],
@@ -627,7 +626,7 @@ class TestDateFromFiltering:
     def test_recompute_aggregates_no_date_from_uses_all_weeks(self):
         store = self._make_store([self._WS_OLD, self._WS_NEW])
 
-        with patch("pipeline.MongoStore", return_value=store):
+        with patch("aggregate.MongoStore", return_value=store):
             from pipeline import recompute_aggregates
             results = recompute_aggregates(
                 domains=[_make_domain()],
@@ -640,9 +639,9 @@ class TestDateFromFiltering:
         store = self._make_store([self._WS_OLD, self._WS_NEW])
         cutoff = dt.date(2024, 1, 1)
 
-        with patch("pipeline.MongoStore", return_value=store), \
-             patch("pipeline.plot_keywords_over_time"), \
-             patch("pipeline.plot_article_counts"):
+        with patch("plot_service.MongoStore", return_value=store), \
+             patch("plot_service.plot_keywords_over_time"), \
+             patch("plot_service.plot_article_counts"):
             from pipeline import render_plots
             render_plots(
                 domains=[_make_domain()],

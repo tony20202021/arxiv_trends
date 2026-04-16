@@ -22,6 +22,28 @@ def pivot_week_keyword(df: pd.DataFrame) -> pd.DataFrame:
     return p.sort_index()
 
 
+def pivot_week_keyword_pct(pivot: pd.DataFrame, article_counts: dict) -> pd.DataFrame:
+    """Нормализовать pivot по числу статей за каждую неделю (результат в %).
+
+    Args:
+        pivot: DataFrame из pivot_week_keyword()
+        article_counts: {datetime: int} из store.get_article_counts_by_week()
+
+    Returns:
+        DataFrame с теми же колонками, значения в % (0–100)
+    """
+    if pivot.empty or not article_counts:
+        return pivot.copy().astype(float)
+    pct = pivot.copy().astype(float)
+    for week in pct.index:
+        n = article_counts.get(week, 0)
+        if n > 0:
+            pct.loc[week] = pct.loc[week] / n * 100
+        else:
+            pct.loc[week] = 0.0
+    return pct
+
+
 def top_popular_now(pivot: pd.DataFrame, top_n: int = TOP_N) -> List[str]:
     if pivot.empty:
         return []

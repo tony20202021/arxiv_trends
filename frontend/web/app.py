@@ -53,7 +53,10 @@ def _domain_data() -> list[dict]:
         popular = d / "top_popular.png"
         growing = d / "top_growing.png"
         articles = d / "articles_per_week.png"
-        if not any(p.exists() for p in [popular, growing, articles]):
+        popular_pct = d / "top_popular_pct.png"
+        growing_pct = d / "top_growing_pct.png"
+        all_plots = [popular, growing, articles, popular_pct, growing_pct]
+        if not any(p.exists() for p in all_plots):
             continue
 
         def mtime_str(p: Path) -> str:
@@ -63,13 +66,15 @@ def _domain_data() -> list[dict]:
             except OSError:
                 return ""
 
-        ref = next((p for p in [popular, growing, articles] if p.exists()), None)
+        ref = next((p for p in all_plots if p.exists()), None)
         domains.append({
             "id": d.name,
             "updated": mtime_str(ref) if ref else "",
-            "has_popular":  popular.exists(),
-            "has_growing":  growing.exists(),
-            "has_articles": articles.exists(),
+            "has_popular":      popular.exists(),
+            "has_growing":      growing.exists(),
+            "has_articles":     articles.exists(),
+            "has_popular_pct":  popular_pct.exists(),
+            "has_growing_pct":  growing_pct.exists(),
         })
 
     return domains

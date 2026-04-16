@@ -70,12 +70,20 @@ class TestActiveExtractor:
 
 
 class TestUnimplementedExtractors:
-    @pytest.mark.parametrize("key", ["3_tfidf_sklearn", "4_tfidf_gensim", "5_keybert", "6_yake"])
+    @pytest.mark.parametrize("key", ["4_tfidf_gensim", "5_keybert"])
     def test_raises_not_implemented(self, key):
         from keywords.registry import EXTRACTORS
         spec = EXTRACTORS[key]
         with pytest.raises(NotImplementedError):
             spec.fn("any abstract text")
+
+    @pytest.mark.parametrize("key", ["3_tfidf_sklearn", "6_yake"])
+    def test_implemented_extractors_return_dict(self, key):
+        from keywords.registry import EXTRACTORS
+        spec = EXTRACTORS[key]
+        result = spec.fn("deep learning transformer model attention mechanism")
+        assert isinstance(result, dict)
+        assert len(result) > 0
 
     def test_v2_raises_when_llm_unavailable(self):
         """_v2 без LLM должен бросить RuntimeError (не NotImplementedError)."""
