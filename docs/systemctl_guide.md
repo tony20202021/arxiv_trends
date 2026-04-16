@@ -101,7 +101,7 @@ sudo systemctl status arxiv-backend-1
 sudo journalctl -u arxiv-backend-1 -n 100 --no-pager
 
 # Запустить скрипт вручную для диагностики
-bash sh/start_2_1_fetch.sh --run-once --log-level DEBUG
+bash sh/start_2_fetch.sh --run-once --log-level DEBUG
 ```
 
 ### MongoDB не запускается

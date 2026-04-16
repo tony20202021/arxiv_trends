@@ -12,6 +12,7 @@ from config.constants import TOP_N, GROWTH_WINDOW_WEEKS
 from keywords.registry import ACTIVE_EXTRACTOR_KEY
 from storage.mongo import MongoStore
 from analytics.trends import to_frame, pivot_week_keyword, top_popular_now, top_growing_last_window
+from utils import last_complete_week_start
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,9 @@ def recompute_aggregates(
         dt.datetime(date_from.year, date_from.month, date_from.day)
         if date_from is not None else None
     )
+    # Исключаем текущую (незакрытую) неделю — данные по ней неполные
+    _before = last_complete_week_start()
+    logger.info("Агрегаты считаются по завершённым неделям (до %s включительно)", _before.date())
 
     for domain in domains:
         dname = domain["domain"]
@@ -66,12 +70,13 @@ def recompute_aggregates(
         week_datetimes = sorted(store.col.distinct("week_start", {"domain": dname}))
         if _since is not None:
             week_datetimes = [w for w in week_datetimes if w >= _since]
+        week_datetimes = [w for w in week_datetimes if w <= _before]
         if not week_datetimes:
             logger.warning("Домен '%s': нет данных в БД, пропускаем", dname)
             results[dname] = {"weeks": 0, "popular": [], "growing": [], "skipped": False}
             continue
 
-        logger.info("Домен '%s': %d недель в БД", dname, len(week_datetimes))
+        logger.info("Домен '%s': пересчёт агрегатов по %d неделям...", dname, len(week_datetimes))
 
         rows = store.get_counts_last_weeks(dname, week_datetimes)
         df = to_frame(rows)
@@ -87,6 +92,7 @@ def recompute_aggregates(
             top_growing=growing,
             extractor_key=ACTIVE_EXTRACTOR_KEY,
         )
+        logger.info("Домен '%s': агрегаты обновлены  популярные=%s", dname, popular[:3])
 
         results[dname] = {
             "weeks": len(week_datetimes),
@@ -100,10 +106,14 @@ def recompute_aggregates(
     all_week_datetimes = store.get_all_week_starts()
     if _since is not None:
         all_week_datetimes = [w for w in all_week_datetimes if w >= _since]
+    all_week_datetimes = [w for w in all_week_datetimes if w <= _before]
     if all_week_datetimes:
+        logger.info("  Загружаю данные из БД (%d недель, все домены)...", len(all_week_datetimes))
         all_rows = store.get_counts_all_domains(all_week_datetimes)
+        logger.info("  Загружено %d строк, строю pivot...", len(all_rows))
         all_df = to_frame(all_rows)
         all_pivot = pivot_week_keyword(all_df)
+        logger.info("  Pivot готов (%d недель × %d слов), считаю топ...", *all_pivot.shape)
         all_popular = top_popular_now(all_pivot, TOP_N)
         all_growing = top_growing_last_window(all_pivot, GROWTH_WINDOW_WEEKS, TOP_N)
         store.save_aggregated(

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Сервис 1: скачивание статей из arXiv API → articles.
 # Запускается раз в сутки. Перезапускается при изменениях в arxiv/, storage/, pipeline.py, config/, utils/.
-# Использование: ./start_2_1_fetch.sh [--interval-hours 24] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
+# Использование: ./start_2_fetch.sh [--interval-hours 24] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -16,9 +16,9 @@ if command -v conda &>/dev/null && conda info --envs | grep -q "^$CONDA_ENV"; th
 fi
 
 echo "Сервис 1 (fetch) запущен с авто-перезапуском."
-echo "Слежу за: backend/arxiv  backend/storage  backend/pipeline.py  config  utils  scripts/run_scheduler.py"
+echo "Слежу за: backend/arxiv  backend/storage  backend/fetch.py  backend/pipeline.py  config  utils  scripts/run_scheduler.py"
 echo "Ctrl+C для остановки."
 
 exec python -m watchfiles \
     "python scripts/run_scheduler.py --step 1 --interval-hours 24 $*" \
-    backend/arxiv backend/storage backend/pipeline.py config utils scripts/run_scheduler.py
+    backend/arxiv backend/storage backend/fetch.py backend/pipeline.py config utils scripts/run_scheduler.py

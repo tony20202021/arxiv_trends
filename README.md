@@ -44,14 +44,14 @@ python scripts/4_render_plots.py
 
 ### 5. Запустить планировщики (в отдельных терминалах)
 ```bash
-./sh/start_2_1_fetch.sh        # скачивание — раз в сутки
-./sh/start_2_2_extract.sh      # ключевые слова — раз в час
-./sh/start_2_3_aggregates_plots.sh   # агрегаты + графики — раз в час
+./sh/start_2_fetch.sh        # скачивание — раз в сутки
+./sh/start_3_extract.sh      # ключевые слова — раз в час
+./sh/start_4_aggregates_plots.sh   # агрегаты + графики — раз в час
 ```
 
 ### 6. Telegram-бот
 ```bash
-./sh/start_3_frontend.sh
+./sh/start_5_frontend.sh
 ```
 
 ## Команды Telegram-бота
@@ -117,10 +117,10 @@ arxiv_trends/
 │   └── run_scheduler.py    # планировщик (вызывается sh-скриптами)
 ├── sh/
 │   ├── start_1_db.sh
-│   ├── start_2_1_fetch.sh
-│   ├── start_2_2_extract.sh
-│   ├── start_2_3_aggregates_plots.sh
-│   └── start_3_frontend.sh
+│   ├── start_2_fetch.sh
+│   ├── start_3_extract.sh
+│   ├── start_4_aggregates_plots.sh
+│   └── start_5_frontend.sh
 ├── tests/
 ├── .env.example
 ├── requirements.txt

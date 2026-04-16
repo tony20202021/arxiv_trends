@@ -14,7 +14,13 @@ python-slugify>=8.0.0
 
 # Telegram-бот (фронтенд)
 python-telegram-bot>=21.0.0
-watchfiles>=0.21.0          # авто-перезапуск бота при изменении файлов
+watchfiles>=0.21.0          # авто-перезапуск при изменении файлов
+
+# Веб-дашборд (фронтенд)
+fastapi>=0.110.0
+uvicorn>=0.29.0
+jinja2>=3.1.0
+python-multipart>=0.0.9
 
 # LLM-экстрактор (опционально, включить через USE_LLM_EXTRACTOR=1 в .env)
 openai>=1.30.0

@@ -90,7 +90,8 @@ def run_once(
     to_date: dt.date | None,
 ) -> bool:
     """Запустить один прогон. Возвращает True при успехе, False при ошибке."""
-    logger.info("=== Начало прогона (шаг %s) ===", step)
+    _STEP_NAMES = {"1": "fetch abstracts", "2": "extract keywords", "3": "aggregates + plots"}
+    logger.info("=== Начало прогона: %s ===", _STEP_NAMES.get(step, step))
     try:
         week_from, week_to = _date_range(from_date, to_date)
 
@@ -132,7 +133,8 @@ def run_once(
         logger.info("=== Прогон завершён успешно ===")
         return True
     except Exception as exc:
-        logger.error("=== Прогон завершился с ошибкой: %s ===", exc, exc_info=True)
+        logger.error("=== Прогон завершился с ошибкой (%s): %s ===",
+                     _STEP_NAMES.get(step, step), exc, exc_info=True)
         return False
 
 
@@ -179,7 +181,9 @@ def main():
     tg_token   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     tg_chat_id = os.environ.get("ALERT_TELEGRAM_CHAT_ID", "")
 
-    logger.info("Планировщик запущен. Шаг=%s, интервал=%.1f ч.", args.step, args.interval_hours)
+    _STEP_NAMES = {"1": "fetch abstracts", "2": "extract keywords", "3": "aggregates + plots"}
+    logger.info("Планировщик запущен. Шаг %s (%s), интервал=%.1f ч.",
+                args.step, _STEP_NAMES.get(args.step, "?"), args.interval_hours)
     if tg_token and tg_chat_id:
         logger.info("Telegram-алерты включены (chat_id=%s, порог=%d ошибок)", tg_chat_id, ALERT_FAIL_THRESHOLD)
     else:
@@ -217,7 +221,7 @@ def main():
             if consecutive_failures >= ALERT_FAIL_THRESHOLD and tg_token and tg_chat_id:
                 hostname = os.uname().nodename if hasattr(os, "uname") else "unknown"
                 msg = (
-                    f"⚠️ arXiv Trends — шаг {args.step} упал {consecutive_failures} раз подряд\n"
+                    f"⚠️ arXiv Trends — шаг {args.step} ({_STEP_NAMES.get(args.step, '?')}) упал {consecutive_failures} раз подряд\n"
                     f"Хост: {hostname}\n"
                     f"Время: {dt.datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
                     f"Интервал: {args.interval_hours} ч."
@@ -228,7 +232,12 @@ def main():
         if _shutdown:
             break
 
-        logger.info("Следующий прогон через %.1f ч. (Ctrl+C для остановки)", args.interval_hours)
+        next_run = dt.datetime.now(dt.timezone.utc).astimezone() + dt.timedelta(seconds=interval_sec)
+        logger.info(
+            "Следующий прогон через %.1f ч. (~%s). Ctrl+C для остановки.",
+            args.interval_hours,
+            next_run.strftime("%H:%M %Z"),
+        )
         elapsed = 0.0
         sleep_chunk = 30.0
         while elapsed < interval_sec and not _shutdown:

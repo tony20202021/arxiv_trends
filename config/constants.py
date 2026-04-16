@@ -6,7 +6,7 @@ ARTICLES_TTL_DAYS = 730    # статьи старше этого числа д�
 # Версия экстрактора: см. backend/keywords/registry.py (ACTIVE_EXTRACTOR_KEY)
 # В БД хранится как целое число (ACTIVE_EXTRACTOR.db_id).
 TOP_N = 5                  # топ-N для графиков
-GROWTH_WINDOW_WEEKS = 10    # окно роста (в неделях)
+GROWTH_WINDOW_WEEKS = 24    # окно роста (в неделях)
 
 ARXIV_PAGE_SIZE = 200           # размер страницы arXiv API (один запрос к API); макс. 2000
 ARXIV_MAX_OFFSET = 30000        # максимальный start по документации arXiv

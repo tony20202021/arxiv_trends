@@ -43,5 +43,15 @@
     "domain": "quant_ph",
     "title": "Quantum Physics (Quantum ML)",
     "arxiv_search_query": "cat:quant-ph AND (ti:machine+learning OR ti:neural+network OR ti:quantum+computing)"
+  },
+  {
+    "domain": "cs_ma",
+    "title": "Computer Science — Multiagent Systems",
+    "arxiv_search_query": "cat:cs.MA"
+  },
+  {
+    "domain": "cs_ir",
+    "title": "Computer Science — Information Retrieval",
+    "arxiv_search_query": "cat:cs.IR"
   }
 ]

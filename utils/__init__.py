@@ -21,6 +21,18 @@ def to_week_datetime(d: dt.date) -> dt.datetime:
     return dt.datetime(d.year, d.month, d.day, tzinfo=dt.timezone.utc)
 
 
+def last_complete_week_start() -> dt.datetime:
+    """Понедельник последней полностью завершённой недели (naive UTC).
+
+    Текущая неделя исключается, так как данные по ней неполные.
+    Возвращает naive datetime для совместимости с значениями из MongoDB.
+    """
+    today = dt.datetime.now(dt.timezone.utc).date()
+    this_monday = week_start(today)
+    last_monday = this_monday - dt.timedelta(weeks=1)
+    return dt.datetime(last_monday.year, last_monday.month, last_monday.day)  # naive
+
+
 def iter_weeks_between(week_from: dt.date, week_to: dt.date) -> List[dt.date]:
     """Список понедельников от week_from до week_to включительно."""
     start = week_start(week_from)

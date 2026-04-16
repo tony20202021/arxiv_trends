@@ -2,9 +2,13 @@
 
 Публичный API:
     render_plots(domains, mongo_uri, mongo_db, out_dir, date_from)
+
+Побочный продукт: рядом с каждым PNG сохраняется JSON-файл с ключевыми словами,
+например top_popular.json — для использования в Telegram-боте без обращения к БД.
 """
 from __future__ import annotations
 import datetime as dt
+import json
 import logging
 from pathlib import Path
 from typing import List
@@ -19,8 +23,37 @@ from analytics.trends import (
     top_popular_now, top_growing_last_window,
 )
 from plots.plotter import plot_keywords_over_time, plot_article_counts, build_keyword_styles
+from utils import last_complete_week_start
 
 logger = logging.getLogger(__name__)
+
+
+def _last_row(pivot, keywords: list[str]) -> dict[str, float]:
+    """Значения из последней строки pivot для указанных ключевых слов."""
+    if pivot.empty:
+        return {}
+    row = pivot.iloc[-1]
+    return {kw: round(float(row[kw]), 2) for kw in keywords if kw in pivot.columns}
+
+
+def _save_keywords_json(
+    path: Path,
+    keywords: list[str],
+    extractor_key: str,
+    counts: dict[str, float] | None = None,
+    pcts: dict[str, float] | None = None,
+) -> None:
+    """Сохранить ключевые слова рядом с графиком (для Telegram-бота).
+
+    counts — абсолютные значения последней недели {keyword: count}
+    pcts   — процентные значения последней недели {keyword: pct}
+    """
+    meta: dict = {"keywords": keywords, "extractor": extractor_key}
+    if counts:
+        meta["counts"] = counts
+    if pcts:
+        meta["pcts"] = pcts
+    path.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
 
 def render_plots(
@@ -53,6 +86,8 @@ def render_plots(
         dt.datetime(date_from.year, date_from.month, date_from.day)
         if date_from is not None else None
     )
+    # Исключаем текущую (незакрытую) неделю из данных для графиков
+    _before = last_complete_week_start()
 
     for domain in domains:
         dname = domain["domain"]
@@ -69,6 +104,7 @@ def render_plots(
         week_datetimes = sorted(store.col.distinct("week_start", {"domain": dname}))
         if _since is not None:
             week_datetimes = [w for w in week_datetimes if w >= _since]
+        week_datetimes = [w for w in week_datetimes if w <= _before]
         if not week_datetimes:
             logger.warning("Домен '%s': нет данных keyword_counts, пропускаем", dname)
             results[dname] = {"plots": 0, "skipped": True}
@@ -78,18 +114,33 @@ def render_plots(
         df = to_frame(rows)
         pivot = pivot_week_keyword(df)
 
+        art_counts = store.get_article_counts_by_week(dname)
+        if _since is not None:
+            art_counts = {k: v for k, v in art_counts.items() if k >= _since}
+        art_counts = {k: v for k, v in art_counts.items() if k <= _before}
+        pivot_pct = pivot_week_keyword_pct(pivot, art_counts)
+
         slug = slugify(dname)
         base = Path(out_dir) / "plots" / slug
         base.mkdir(parents=True, exist_ok=True)
 
         ext_label = agg.get("extractor_key") or ACTIVE_EXTRACTOR_KEY
         styles = build_keyword_styles(list(dict.fromkeys(popular + growing)))
+
+        # Значения последней недели для JSON-сайдкаров
+        popular_counts = _last_row(pivot, popular)
+        popular_pcts   = _last_row(pivot_pct, popular)
+        growing_counts = _last_row(pivot, growing)
+        growing_pcts   = _last_row(pivot_pct, growing)
+
         plot_keywords_over_time(
             pivot, popular,
             f"{domain['title']} — Top-{TOP_N} popular (last week)  [{ext_label}]",
             base / "top_popular.png",
             keyword_styles=styles,
         )
+        _save_keywords_json(base / "top_popular.png", popular, ext_label,
+                            counts=popular_counts, pcts=popular_pcts)
         plot_keywords_over_time(
             pivot, growing,
             f"{domain['title']} — Top-{TOP_N} growing (last {GROWTH_WINDOW_WEEKS} weeks)  [{ext_label}]",
@@ -97,17 +148,15 @@ def render_plots(
             keyword_styles=styles,
             regression_window=GROWTH_WINDOW_WEEKS,
         )
+        _save_keywords_json(base / "top_growing.png", growing, ext_label,
+                            counts=growing_counts, pcts=growing_pcts)
 
-        art_counts = store.get_article_counts_by_week(dname)
-        if _since is not None:
-            art_counts = {k: v for k, v in art_counts.items() if k >= _since}
         plot_article_counts(
             art_counts,
             f"{domain['title']} — Articles per week",
             base / "articles_per_week.png",
         )
 
-        pivot_pct = pivot_week_keyword_pct(pivot, art_counts)
         plot_keywords_over_time(
             pivot_pct, popular,
             f"{domain['title']} — Top-{TOP_N} popular, % of weekly articles  [{ext_label}]",
@@ -115,6 +164,8 @@ def render_plots(
             keyword_styles=styles,
             ylabel="% of weekly articles",
         )
+        _save_keywords_json(base / "top_popular_pct.png", popular, ext_label,
+                            counts=popular_counts, pcts=popular_pcts)
         plot_keywords_over_time(
             pivot_pct, growing,
             f"{domain['title']} — Top-{TOP_N} growing, % of weekly articles  [{ext_label}]",
@@ -123,6 +174,8 @@ def render_plots(
             regression_window=GROWTH_WINDOW_WEEKS,
             ylabel="% of weekly articles",
         )
+        _save_keywords_json(base / "top_growing_pct.png", growing, ext_label,
+                            counts=growing_counts, pcts=growing_pcts)
 
         logger.info("  Графики сохранены → %s", base)
         results[dname] = {"plots": 5, "skipped": False}
@@ -133,6 +186,7 @@ def render_plots(
         all_week_datetimes = store.get_all_week_starts()
         if _since is not None:
             all_week_datetimes = [w for w in all_week_datetimes if w >= _since]
+        all_week_datetimes = [w for w in all_week_datetimes if w <= _before]
         if all_week_datetimes:
             all_rows = store.get_counts_all_domains(all_week_datetimes)
             all_df = to_frame(all_rows)
@@ -143,14 +197,28 @@ def render_plots(
             base_all = Path(out_dir) / "plots" / "_all"
             base_all.mkdir(parents=True, exist_ok=True)
 
+            all_art_counts = store.get_article_counts_all_domains()
+            if _since is not None:
+                all_art_counts = {k: v for k, v in all_art_counts.items() if k >= _since}
+            all_art_counts = {k: v for k, v in all_art_counts.items() if k <= _before}
+            all_pivot_pct = pivot_week_keyword_pct(all_pivot, all_art_counts)
+
             all_ext_label = agg_all.get("extractor_key") or ACTIVE_EXTRACTOR_KEY
             styles = build_keyword_styles(list(dict.fromkeys(all_popular + all_growing)))
+
+            all_popular_counts = _last_row(all_pivot, all_popular)
+            all_popular_pcts   = _last_row(all_pivot_pct, all_popular)
+            all_growing_counts = _last_row(all_pivot, all_growing)
+            all_growing_pcts   = _last_row(all_pivot_pct, all_growing)
+
             plot_keywords_over_time(
                 all_pivot, all_popular,
                 f"All domains — Top-{TOP_N} popular (last week)  [{all_ext_label}]",
                 base_all / "top_popular.png",
                 keyword_styles=styles,
             )
+            _save_keywords_json(base_all / "top_popular.png", all_popular, all_ext_label,
+                                counts=all_popular_counts, pcts=all_popular_pcts)
             plot_keywords_over_time(
                 all_pivot, all_growing,
                 f"All domains — Top-{TOP_N} growing (last {GROWTH_WINDOW_WEEKS} weeks)  [{all_ext_label}]",
@@ -158,16 +226,13 @@ def render_plots(
                 keyword_styles=styles,
                 regression_window=GROWTH_WINDOW_WEEKS,
             )
-            all_art_counts = store.get_article_counts_all_domains()
-            if _since is not None:
-                all_art_counts = {k: v for k, v in all_art_counts.items() if k >= _since}
+            _save_keywords_json(base_all / "top_growing.png", all_growing, all_ext_label,
+                                counts=all_growing_counts, pcts=all_growing_pcts)
             plot_article_counts(
                 all_art_counts,
                 "All domains — Articles per week",
                 base_all / "articles_per_week.png",
             )
-
-            all_pivot_pct = pivot_week_keyword_pct(all_pivot, all_art_counts)
             plot_keywords_over_time(
                 all_pivot_pct, all_popular,
                 f"All domains — Top-{TOP_N} popular, % of weekly articles  [{all_ext_label}]",
@@ -175,6 +240,8 @@ def render_plots(
                 keyword_styles=styles,
                 ylabel="% of weekly articles",
             )
+            _save_keywords_json(base_all / "top_popular_pct.png", all_popular, all_ext_label,
+                                counts=all_popular_counts, pcts=all_popular_pcts)
             plot_keywords_over_time(
                 all_pivot_pct, all_growing,
                 f"All domains — Top-{TOP_N} growing, % of weekly articles  [{all_ext_label}]",
@@ -183,6 +250,8 @@ def render_plots(
                 regression_window=GROWTH_WINDOW_WEEKS,
                 ylabel="% of weekly articles",
             )
+            _save_keywords_json(base_all / "top_growing_pct.png", all_growing, all_ext_label,
+                                counts=all_growing_counts, pcts=all_growing_pcts)
             logger.info("  Суммарные графики сохранены → %s", base_all)
             results["_all"] = {"plots": 5, "skipped": False}
     else:

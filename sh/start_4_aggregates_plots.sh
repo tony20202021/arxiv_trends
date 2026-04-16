@@ -1,7 +1,7 @@
 #!/bin/bash
 # Сервис 3: пересчёт агрегатов и построение графиков.
 # Запускается раз в час. Перезапускается при изменениях в analytics/, plots/, storage/, pipeline.py, config/, utils/.
-# Использование: ./start_2_3_aggregates_plots.sh [--interval-hours 1] [--out .outputs]
+# Использование: ./start_4_aggregates_plots.sh [--interval-hours 1] [--out .outputs]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -16,9 +16,11 @@ if command -v conda &>/dev/null && conda info --envs | grep -q "^$CONDA_ENV"; th
 fi
 
 echo "Сервис 3 (aggregates+plots) запущен с авто-перезапуском."
-echo "Слежу за: backend/analytics  backend/plots  backend/storage  backend/pipeline.py  config  utils  scripts/run_scheduler.py"
+echo "Слежу за: backend/analytics  backend/plots  backend/storage  backend/aggregate.py  backend/plot_service.py  backend/pipeline.py  config  utils  scripts/run_scheduler.py"
 echo "Ctrl+C для остановки."
 
 exec python -m watchfiles \
     "python scripts/run_scheduler.py --step 3 --interval-hours 1 $*" \
-    backend/analytics backend/plots backend/storage backend/pipeline.py config utils scripts/run_scheduler.py
+    backend/analytics backend/plots backend/storage \
+    backend/aggregate.py backend/plot_service.py backend/pipeline.py \
+    config utils scripts/run_scheduler.py

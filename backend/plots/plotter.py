@@ -96,9 +96,9 @@ def plot_keywords_over_time(
                 plt.plot(
                     w.index, y_reg,
                     color=color,
-                    linewidth=1,
-                    alpha=0.4,
-                    linestyle="-",
+                    linewidth=2.5,
+                    alpha=0.7,
+                    linestyle=(0, (1, 1)),  # плотный пунктир-точки
                 )
 
     plt.title(title)

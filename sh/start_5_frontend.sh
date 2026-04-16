@@ -21,4 +21,5 @@ echo "Ctrl+C для остановки."
 exec python -m watchfiles \
     "python frontend/telegram_bot/bot.py" \
     frontend/telegram_bot \
-    config
+    config \
+    utils

@@ -13,12 +13,13 @@
 """
 from __future__ import annotations
 import datetime as dt
+import json
 import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -41,6 +42,26 @@ logger = logging.getLogger(__name__)
 OUTPUTS_DIR = Path(os.environ.get("OUTPUTS_DIR", ".outputs"))
 
 
+def _resolve_web_url() -> str:
+    """Вернуть публичный URL веб-дашборда.
+
+    Приоритет: WEB_URL из .env → внешний IP (ipify) + WEB_PORT.
+    """
+    url = os.environ.get("WEB_URL", "").strip().rstrip("/")
+    if url:
+        return url
+    port = os.environ.get("WEB_PORT", "8300")
+    try:
+        import urllib.request
+        ip = urllib.request.urlopen("https://api.ipify.org", timeout=3).read().decode()
+        return f"http://{ip.strip()}:{port}"
+    except Exception:
+        return ""
+
+
+WEB_URL = _resolve_web_url()
+
+
 def _plot_updated_at(path: Path) -> str:
     """Возвращает время последнего изменения файла как строку UTC."""
     try:
@@ -51,16 +72,60 @@ def _plot_updated_at(path: Path) -> str:
         return "неизвестно"
 
 
-def _plots_for_domain(domain_id: str) -> tuple[Path | None, Path | None, Path | None]:
+def _read_keywords_data(plot_path: Path) -> dict:
+    """Читает JSON-сайдкар рядом с графиком.
+
+    Returns dict с ключами: keywords, counts, pcts, extractor.
+    """
+    json_path = plot_path.with_suffix(".json")
+    try:
+        return json.loads(json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _format_keywords_message(label: str, data: dict) -> str:
+    """Форматирует список ключевых слов как отдельное текстовое сообщение.
+
+    Пример:
+        📌 Top-популярные:
+        1. learn  (1 234, 3.2%)
+        2. train  (987, 2.5%)
+    """
+    keywords = data.get("keywords", [])
+    if not keywords:
+        return ""
+    counts = data.get("counts", {})
+    pcts = data.get("pcts", {})
+
+    lines = [f"📌 {label}:"]
+    for i, kw in enumerate(keywords, 1):
+        count = counts.get(kw)
+        pct = pcts.get(kw)
+        if count is not None and pct is not None:
+            lines.append(f"{i}. {kw}  ({int(count):,}, {pct:.1f}%)")
+        elif count is not None:
+            lines.append(f"{i}. {kw}  ({int(count):,})")
+        else:
+            lines.append(f"{i}. {kw}")
+
+    return "\n".join(lines)
+
+
+def _plots_for_domain(domain_id: str) -> dict[str, Path | None]:
     base = OUTPUTS_DIR / "plots" / domain_id
-    popular = base / "top_popular.png"
-    growing = base / "top_growing.png"
-    articles = base / "articles_per_week.png"
-    return (
-        popular if popular.exists() else None,
-        growing if growing.exists() else None,
-        articles if articles.exists() else None,
-    )
+
+    def _p(name: str) -> Path | None:
+        p = base / name
+        return p if p.exists() else None
+
+    return {
+        "articles":     _p("articles_per_week.png"),
+        "popular":      _p("top_popular.png"),
+        "growing":      _p("top_growing.png"),
+        "popular_pct":  _p("top_popular_pct.png"),
+        "growing_pct":  _p("top_growing_pct.png"),
+    }
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -69,17 +134,27 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Показываю тренды ключевых слов из абстрактов статей arXiv.\n\n"
         "Команды:\n"
         "  /domains — список доменов с готовыми графиками\n"
-        "  /trends <domain_id> — графики для домена\n\n"
+        "  /trends <domain_id> — графики для домена\n"
+        "  /web — ссылка на веб-дашборд\n\n"
         "Пример: /trends cs-lg"
     )
     await update.message.reply_text(text)
+
+
+async def cmd_web(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if WEB_URL:
+        await update.message.reply_text(f"Веб-дашборд: {WEB_URL}")
+    else:
+        await update.message.reply_text(
+            "WEB_URL не задан в .env — добавьте адрес дашборда."
+        )
 
 
 async def cmd_domains(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     plot_dirs = sorted(OUTPUTS_DIR.glob("plots/*/top_popular.png"))
     if not plot_dirs:
         await update.message.reply_text(
-            "Нет готовых данных. Запустите pipeline: ./sh/start_2_1_fetch.sh && ./sh/start_2_2_extract.sh && ./sh/start_2_3_aggregates_plots.sh"
+            "Нет готовых данных. Запустите pipeline: ./sh/start_2_fetch.sh && ./sh/start_3_extract.sh && ./sh/start_4_aggregates_plots.sh"
         )
         return
 
@@ -95,13 +170,13 @@ async def cmd_domains(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def _send_trends(domain_id: str, update: Update) -> None:
-    popular_path, growing_path, articles_path = _plots_for_domain(domain_id)
+    plots = _plots_for_domain(domain_id)
 
-    if popular_path is None and growing_path is None and articles_path is None:
+    if not any(plots.values()):
         text = (
             f"Графики для '{domain_id}' не найдены.\n"
             "Проверьте список доменов: /domains\n"
-            "Или запустите pipeline: ./sh/start_2_1_fetch.sh && ./sh/start_2_2_extract.sh && ./sh/start_2_3_aggregates_plots.sh"
+            "Или запустите pipeline: ./sh/start_2_fetch.sh && ./sh/start_3_extract.sh && ./sh/start_4_aggregates_plots.sh"
         )
         if update.callback_query:
             await update.callback_query.edit_message_text(text)
@@ -109,30 +184,52 @@ async def _send_trends(domain_id: str, update: Update) -> None:
             await update.message.reply_text(text)
         return
 
-    ref_path = popular_path or growing_path or articles_path
-    ts_str = _plot_updated_at(ref_path) if ref_path else "неизвестно"
-    caption_extra = f"\nОбновлено: {ts_str}"
-
-    media = []
-    if articles_path:
-        media.append(InputMediaPhoto(
-            media=articles_path.open("rb"),
-            caption=f"Статей по неделям ({domain_id}){caption_extra}",
-        ))
-    if popular_path:
-        media.append(InputMediaPhoto(
-            media=popular_path.open("rb"),
-            caption=f"Top-популярные ({domain_id}){caption_extra}",
-        ))
-    if growing_path:
-        media.append(InputMediaPhoto(
-            media=growing_path.open("rb"),
-            caption=f"Top-растущие ({domain_id}){caption_extra}",
-        ))
+    ref_path = next(p for p in plots.values() if p is not None)
+    ts_str = _plot_updated_at(ref_path)
+    updated_line = f"\nОбновлено: {ts_str}"
 
     reply = update.callback_query.message if update.callback_query else update.message
-    for item in media:
-        await reply.reply_photo(photo=item.media, caption=item.caption)
+
+    # 1. Статей по неделям
+    if plots["articles"]:
+        await reply.reply_photo(
+            photo=plots["articles"].open("rb"),
+            caption=f"Статей по неделям ({domain_id}){updated_line}",
+        )
+
+    # 2. Top-популярные: абс. → % → слова
+    if plots["popular"]:
+        await reply.reply_photo(
+            photo=plots["popular"].open("rb"),
+            caption=f"Top-популярные — абс. ({domain_id})",
+        )
+    if plots["popular_pct"]:
+        await reply.reply_photo(
+            photo=plots["popular_pct"].open("rb"),
+            caption=f"Top-популярные — % от статей ({domain_id})",
+        )
+    if plots["popular"]:
+        data = _read_keywords_data(plots["popular"])
+        msg = _format_keywords_message("Top-популярные", data)
+        if msg:
+            await reply.reply_text(msg)
+
+    # 3. Top-растущие: абс. → % → слова
+    if plots["growing"]:
+        await reply.reply_photo(
+            photo=plots["growing"].open("rb"),
+            caption=f"Top-растущие — абс. ({domain_id})",
+        )
+    if plots["growing_pct"]:
+        await reply.reply_photo(
+            photo=plots["growing_pct"].open("rb"),
+            caption=f"Top-растущие — % от статей ({domain_id})",
+        )
+    if plots["growing"]:
+        data = _read_keywords_data(plots["growing"])
+        msg = _format_keywords_message("Top-растущие", data)
+        if msg:
+            await reply.reply_text(msg)
 
 
 async def cmd_trends(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -161,6 +258,7 @@ async def _set_commands(app) -> None:
     await app.bot.set_my_commands([
         BotCommand("start", "Приветствие"),
         BotCommand("domains", "Список доменов с графиками"),
+        BotCommand("web", "Ссылка на веб-дашборд"),
     ])
 
 
@@ -172,6 +270,7 @@ def main() -> None:
     app = Application.builder().token(token).post_init(_set_commands).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("domains", cmd_domains))
+    app.add_handler(CommandHandler("web", cmd_web))
     app.add_handler(CommandHandler("trends", cmd_trends))
     app.add_handler(CallbackQueryHandler(callback_trends, pattern=r"^trends:"))
     app.add_handler(MessageHandler(filters.COMMAND, cmd_unknown))

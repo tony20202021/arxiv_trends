@@ -90,11 +90,27 @@ class MongoStore:
         return self.col.distinct("domain")
 
     def get_counts_all_domains(self, week_starts: List[dt.datetime]) -> List[dict]:
-        """Keyword counts по всем доменам за указанные недели (без фильтра по домену)."""
+        """Суммарные keyword counts по всем доменам за указанные недели.
+
+        Агрегация выполняется на стороне MongoDB ($group по week_start+keyword),
+        что возвращает на порядок меньше данных, чем полный scan всех строк.
+        """
         lo = min(week_starts)
         hi = max(week_starts)
-        cur = self.col.find({"week_start": {"$gte": lo, "$lte": hi}}, {"_id": 0})
-        return list(cur)
+        pipeline = [
+            {"$match": {"week_start": {"$gte": lo, "$lte": hi}}},
+            {"$group": {
+                "_id": {"week_start": "$week_start", "keyword": "$keyword"},
+                "count": {"$sum": "$count"},
+            }},
+            {"$project": {
+                "_id": 0,
+                "week_start": "$_id.week_start",
+                "keyword": "$_id.keyword",
+                "count": 1,
+            }},
+        ]
+        return list(self.col.aggregate(pipeline, allowDiskUse=True))
 
     def get_all_week_starts(self) -> List[dt.datetime]:
         """Все недели присутствующие в weekly_keyword_counts (по всем доменам)."""
@@ -106,7 +122,7 @@ class MongoStore:
             {"$group": {"_id": "$week_start", "count": {"$sum": 1}}},
             {"$sort": {"_id": ASCENDING}},
         ]
-        return {r["_id"]: r["count"] for r in self.articles.aggregate(pipeline, maxTimeMS=20_000)}
+        return {r["_id"]: r["count"] for r in self.articles.aggregate(pipeline, allowDiskUse=True)}
 
     def get_top_keywords(
         self,
@@ -282,7 +298,7 @@ class MongoStore:
             {"$group": {"_id": "$week_start", "count": {"$sum": 1}}},
             {"$sort": {"_id": ASCENDING}},
         ]
-        return {r["_id"]: r["count"] for r in self.articles.aggregate(pipeline, maxTimeMS=20_000)}
+        return {r["_id"]: r["count"] for r in self.articles.aggregate(pipeline, allowDiskUse=True)}
 
     def get_latest_article_update(self, domain: str) -> Optional[dt.datetime]:
         """Вернуть дату последнего обновления ключевых слов для домена."""

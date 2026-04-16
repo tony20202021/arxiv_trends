@@ -2,15 +2,16 @@
 
 ## Архитектура
 
-Пайплайн разделён на два независимых сервиса:
+Пайплайн разделён на три независимых сервиса (каждый — отдельный процесс с watchfiles):
 
 ```
 ══════════════════════ Шаг 1: run_scheduler.py --step 1 ═══════════════════════
 
 arXiv API (Atom)
       ↓
-  api_client.py       — постраничная выгрузка статей (батчами по неделям/дням)
-                        абстракт берётся из поля summary прямо из API-ответа
+  fetch.py / api_client.py
+      — постраничная выгрузка статей батчами по неделям/дням
+      — абстракт берётся из поля summary прямо из API-ответа
       ↓
   MongoDB             — коллекция articles (arxiv_id, domain, abstract, ...)
 
@@ -18,21 +19,26 @@ arXiv API (Atom)
 
   MongoDB             — читает articles (где keywords = null или версия устарела)
       ↓
-  extractor.py        — извлечение ключевых слов (regex или LLM)
+  extract.py / keywords/extractor.py
+      — извлечение ключевых слов (regex / TF-IDF / YAKE / LLM)
       ↓
   MongoDB             — articles.keywords + weekly_keyword_counts ($inc upsert)
 
-══════════════════════════════ Аналитика и графики ═══════════════════════════
+══════════════════ Шаг 3: run_scheduler.py --step 3 ═════════════════════════
 
   MongoDB             — weekly_keyword_counts
       ↓
-  trends.py           — расчёт top_popular / top_growing
+  aggregate.py / analytics/trends.py
+      — расчёт top_popular / top_growing (абсолютные + процентные)
       ↓
   MongoDB             — aggregates (предвычисленные топ-списки)
       ↓
-  plotter.py          — графики PNG в outputs/plots/<domain>/
+  plot_service.py / plots/plotter.py
+      — 5 PNG-графиков на домен + JSON-сайдкары
       ↓
-  Telegram-бот        — отдаёт графики пользователям по команде /trends
+  .outputs/plots/<domain>/
+      ↓
+  Telegram-бот / веб-дашборд  — отдаёт графики пользователям
 ```
 
 ---
@@ -65,28 +71,32 @@ arXiv API (Atom)
 
 ---
 
-### 2. Получение статей (`arxiv/api_client.py`)
+### 2. Получение статей (`backend/fetch.py` + `arxiv/api_client.py`)
 
 - Запрос к arXiv Atom API: `feedparser` + `requests`
 - Абстракт берётся из поля `summary` прямо из Atom-ответа — отдельные HTTP-запросы за страницами абстрактов не нужны
 - Фильтр по диапазону дат (`submittedDate`)
-- **Пагинация батчами по неделям**: каждая неделя запрашивается отдельно, чтобы не превышать лимит `start=10000`; если неделя превышает лимит — автоматически дробится по дням
+- **Пагинация батчами по неделям**: каждая неделя запрашивается отдельно, чтобы не превышать лимит `start=10000`; если неделя превышает лимит — автоматически дробится по дням (итеративный алгоритм с очередью, без рекурсии)
 - **Retry с экспоненциальным backoff**: 5 попыток, пауза ×2 при каждой ошибке
+- После каждой недели в лог выводится прогресс по доменам и неделям, прошедшее время и ETA:
+  ```
+  [домен 1/11] (нед. 21/53) прошло 0:03:30, осталось ~0:05:47 (ETA ~10:02 UTC)
+  ```
 
 ---
 
-### 3. Извлечение ключевых слов (`keywords/`)
+### 3. Извлечение ключевых слов (`backend/extract.py` + `keywords/`)
 
-**`registry.py`** — центральный реестр алгоритмов:
+**`keywords/registry.py`** — центральный реестр алгоритмов:
 
 | Ключ | DB ID | Алгоритм | Статус |
 |---|---|---|---|
 | `1_count_stopwords` | 1 | Regex + лемматизация + стоп-слова | **активный** |
 | `2_llm` | 2 | LLM (OpenAI-совместимый, `USE_LLM_EXTRACTOR=1`) | готов |
-| `3_tfidf_sklearn` | 3 | TF-IDF (scikit-learn) | заготовка |
+| `3_tfidf_sklearn` | 3 | Per-doc TF-IDF с биграммами (scikit-learn) | реализован |
 | `4_tfidf_gensim` | 4 | TF-IDF (gensim) | заготовка |
 | `5_keybert` | 5 | KeyBERT (sentence-transformers) | заготовка |
-| `6_yake` | 6 | YAKE (статистический) | заготовка |
+| `6_yake` | 6 | YAKE (статистический) | реализован |
 
 **Смена алгоритма** — одна строка в `registry.py`:
 ```python
@@ -95,14 +105,14 @@ ACTIVE_EXTRACTOR_KEY = "1_count_stopwords"  # изменить здесь
 При смене DB ID возрастает → Сервис 2 автоматически перепроцессирует все статьи.
 
 В БД хранится целое число (`keyword_extractor_version`) для скорости индексирования.
-В `aggregates` сохраняется строковый ключ (`extractor_key`) — отображается в заголовках графиков.
+В `aggregates` сохраняется строковый ключ (`extractor_key`) — отображается в заголовках графиков и в Telegram.
 
-**`extractor.py`** — реализация алгоритма v1:
+**`keywords/extractor.py`** — реализация алгоритма v1:
 - Токенизация по `TOKEN_PATTERN`, фильтрация стоп-слов и коротких токенов
-- Лемматизация через spaCy (`en_core_web_sm`)
+- Лемматизация через spaCy (пробует scispacy `en_core_sci_sm`, fallback — `en_core_web_sm`)
 - Возвращает `Dict[keyword, count]`
 
-**`llm_extractor.py`** — реализация алгоритма v2:
+**`keywords/llm_extractor.py`** — реализация алгоритма v2:
 - Вызов OpenAI-совместимого API
 - Структурированный вывод через Pydantic (`KeywordList`)
 - Возвращает `None` если `USE_LLM_EXTRACTOR != 1`
@@ -126,12 +136,17 @@ ACTIVE_EXTRACTOR_KEY = "1_count_stopwords"  # изменить здесь
 
 | Поле | Тип | Описание |
 |---|---|---|
-| `domain` | str | ID домена |
+| `domain` | str | ID домена (в т.ч. `_all` — суммарный по всем) |
 | `computed_at` | datetime UTC | Время расчёта |
-| `top_popular` | list[str] | Топ-10 популярных слов |
-| `top_growing` | list[str] | Топ-10 растущих слов |
+| `top_popular` | list[str] | Топ-N популярных слов |
+| `top_growing` | list[str] | Топ-N растущих слов |
+| `extractor_key` | str | Ключ алгоритма (`1_count_stopwords` и т.д.) |
 
-Обновляется после каждого прогона pipeline. Используется Telegram-ботом.
+Обновляется после каждого прогона Сервиса 3. Используется Telegram-ботом и веб-дашбордом.
+
+> **Производительность**: `get_counts_all_domains()` использует MongoDB `$group` агрегацию вместо `find()` —
+> сервер суммирует counts по (week_start, keyword) и возвращает на порядок меньше данных.
+> `get_article_counts_by_week()` и `get_article_counts_all_domains()` используют `allowDiskUse=True` без таймаута.
 
 ---
 
@@ -140,6 +155,9 @@ ACTIVE_EXTRACTOR_KEY = "1_count_stopwords"  # изменить здесь
 **`to_frame(rows)`** — список документов MongoDB → `pandas.DataFrame`
 
 **`pivot_week_keyword(df)`** — pivot-таблица: строки = недели, столбцы = ключевые слова
+
+**`pivot_week_keyword_pct(pivot, article_counts)`** — нормировка по числу статей (% упоминаний от всех статей недели);
+нормализует ключи `article_counts` к UTC-aware datetime перед lookup, чтобы совпадали с индексом pivot
 
 **`top_popular_now(pivot, top_n)`** — топ-N слов по последней неделе
 
@@ -150,57 +168,87 @@ ACTIVE_EXTRACTOR_KEY = "1_count_stopwords"  # изменить здесь
 
 ---
 
-### 6. Графики (`plots/plotter.py`)
+### 6. Графики (`backend/plot_service.py` + `plots/plotter.py`)
 
-- `matplotlib` — линейные и столбчатые графики по неделям
-- `plot_keywords_over_time(pivot, keywords, title, out_path, regression_window=N)`:
-  - При `regression_window` — рисует линии линейной регрессии за последние N недель (тот же цвет, `alpha=0.4`)
-  - При пустых данных — сохраняет заглушку "No data"
-  - Обрезает историю до `HISTORY_WEEKS`
-- `plot_article_counts(counts_by_week, title, out_path)` — количество статей по неделям
-- `build_keyword_styles(keywords)` — единый словарь цвет+маркер для обоих keyword-графиков
+`render_plots()` строит **5 графиков на домен** (+ суммарные для `_all`):
 
-Графики сохраняются в `.outputs/plots/<domain>/`: `top_popular.png`, `top_growing.png`, `articles_per_week.png`
+| Файл | Описание |
+|---|---|
+| `top_popular.png` | Топ-N популярных слов (абсолютные счётчики) |
+| `top_growing.png` | Топ-N растущих слов (абсолютные счётчики) |
+| `top_popular_pct.png` | Топ-N популярных (% от числа статей недели) |
+| `top_growing_pct.png` | Топ-N растущих (% от числа статей недели) |
+| `articles_per_week.png` | Количество статей по неделям |
+
+**JSON-сайдкары** — рядом с каждым keyword-графиком сохраняется `.json` с данными последней недели:
+```json
+{
+  "keywords": ["learn", "train", "llm", "reason", "agent"],
+  "counts":   {"learn": 1234, "train": 987, "llm": 856, "reason": 743, "agent": 612},
+  "pcts":     {"learn": 3.2, "train": 2.5, "llm": 2.1, "reason": 1.8, "agent": 1.5},
+  "extractor": "1_count_stopwords"
+}
+```
+Telegram-бот читает эти файлы для отображения слов с цифрами — без обращения к БД.
+
+`plot_keywords_over_time(pivot, keywords, title, out_path, ylabel, regression_window)`:
+- При `regression_window` — рисует линии линейной регрессии за последние N недель (тот же цвет, `alpha=0.4`)
+- При пустых данных — сохраняет заглушку "No data"
+- Обрезает историю до `HISTORY_WEEKS`
+- `ylabel` параметризован (используется для абсолютных и процентных графиков)
+
+`plot_article_counts(counts_by_week, title, out_path)` — столбчатая диаграмма статей по неделям
 
 ---
 
-### 7. Сервисные функции (`pipeline.py`)
+### 7. Модули сервисов (`backend/`)
 
-`fetch_abstracts()` — Сервис 1:
+Монолитный `pipeline.py` разделён на четыре самостоятельных модуля.
+`pipeline.py` оставлен как тонкий фасад (реэкспортирует все функции) для обратной совместимости.
+
+**`fetch.py`** — Сервис 1 (`fetch_abstracts`):
 1. Разбивает диапазон дат на недели (`_date_ranges_for_period`)
-2. Для каждой недели — пагинация через `_fetch_range`; при превышении `ARXIV_OFFSET_LIMIT` автоматически дробит по дням
-3. После каждой недели выводит в лог: прошедшее время и ETA до завершения всех недель
-4. Абстракт берётся из поля `summary` Atom-ответа — отдельных HTTP-запросов нет
-5. Новые статьи сохраняет в `articles` (`upsert_article`)
+2. Для каждой недели — пагинация через `_fetch_range` (итеративный алгоритм с очередью); при превышении `ARXIV_OFFSET_LIMIT` автоматически дробит по дням
+3. Новые статьи сохраняет в `articles` (`upsert_article`)
 
-`extract_keywords_batch()` — Сервис 2:
+**`extract.py`** — Сервис 2 (`extract_keywords_batch`):
 1. Читает `articles` где `keywords=null` или `keyword_extractor_version < ACTIVE_EXTRACTOR.db_id`
 2. Извлекает ключевые слова через `keywords.registry.extract_keywords()` (активный алгоритм)
 3. Записывает в `articles.keywords` и `weekly_keyword_counts` (`$inc` upsert)
 4. Round-based: фиксирует количество статей на начало раунда, обрабатывает ровно столько (параллельный Сервис 1 не ломает счётчики)
 
-`recompute_aggregates()` — Сервис 3:
-- Принимает `date_from` — фильтрует недели начиная с этой даты (планировщик передаёт год назад от текущей даты)
+**`aggregate.py`** — Сервис 3, часть 1 (`recompute_aggregates`):
+- Принимает `date_from` — фильтрует недели начиная с этой даты
 - Проверяет актуальность: пропускает домен если `articles.updated_at ≤ aggregates.computed_at`
 - Вычисляет `top_popular` и `top_growing` через `analytics/trends.py`
 - Сохраняет в `aggregates` (поля `top_popular`, `top_growing`, `extractor_key`) + суммарный агрегат `_all`
 
-`render_plots()` — Сервис 4:
+**`plot_service.py`** — Сервис 3, часть 2 (`render_plots`):
 - Принимает `date_from` — строит графики только за последний год
 - Читает агрегаты из `aggregates` и данные из `weekly_keyword_counts` / `articles`
-- Строит 3 графика на домен + суммарные графики `_all`
-- В заголовках `top_popular.png` и `top_growing.png` отображается `extractor_key` из агрегатов
+- Строит 5 графиков на домен + суммарные графики `_all`
+- После каждого keyword-графика сохраняет JSON-сайдкар рядом с PNG
 
 ---
 
 ### 8. Планировщик (`scripts/run_scheduler.py`)
 
 Бесконечный цикл для одного шага pipeline:
-- `--step 1|2|3` — шаг: 1=fetch, 2=extract, 3=aggregates+plots
+- `--step 1|2|3` — шаг: 1=fetch abstracts, 2=extract keywords, 3=aggregates+plots
 - `--interval-hours` — интервал между прогонами
 - `--from` / `--to` — диапазон дат (по умолчанию: год назад → сегодня, пересчитывается каждый прогон)
 - `--run-once` — один прогон и выход
 - Graceful shutdown по `SIGINT` / `SIGTERM`
+- Логи содержат человекочитаемое название шага:
+  ```
+  INFO  Планировщик запущен. Шаг 3 (aggregates + plots), интервал=1.0 ч.
+  INFO  === Начало прогона: aggregates + plots ===
+  INFO  === Прогон завершён успешно ===
+  INFO  Следующий прогон через 1.0 ч. (~09:30 UTC). Ctrl+C для остановки.
+  ```
+
+**Circuit breaker**: после `ALERT_FAIL_THRESHOLD` (3) последовательных ошибок отправляет Telegram-алерт
+(если заданы `TELEGRAM_BOT_TOKEN` и `ALERT_TELEGRAM_CHAT_ID` в `.env`). Сервис не останавливается.
 
 ---
 
@@ -208,9 +256,56 @@ ACTIVE_EXTRACTOR_KEY = "1_count_stopwords"  # изменить здесь
 
 - Библиотека: `python-telegram-bot` v21+
 - Команды: `/start`, `/domains`; домен выбирается через inline-кнопки
-- Отправляет 3 графика отдельными сообщениями: `articles_per_week`, `top_popular`, `top_growing`
-- Список доменов и дату последнего обновления берёт из коллекции `aggregates`
-- При недоступной БД — fallback на файловую систему (`.outputs/plots/`)
+- Авто-перезапуск при изменении файлов в `frontend/telegram_bot/`, `config/`, `utils/` (watchfiles)
+
+Отправляет **7 отдельных сообщений** в следующем порядке:
+1. График: статей по неделям
+2. График: топ-популярные (абс.)
+3. График: топ-популярные (%)
+4. Текст: топ-популярные слова с цифрами
+5. График: топ-растущие (абс.)
+6. График: топ-растущие (%)
+7. Текст: топ-растущие слова с цифрами
+
+Формат текстового сообщения (данные из JSON-сайдкаров, без обращения к БД):
+```
+📌 Top-популярные:
+1. learn  (1 234, 3.2%)
+2. train  (987, 2.5%)
+3. llm  (856, 2.1%)
+...
+```
+
+---
+
+### 10. Веб-дашборд (`frontend/web/app.py`)
+
+- FastAPI + Jinja2 шаблоны
+- Отображает графики PNG из `.outputs/plots/` через HTTP
+- Запуск: `./sh/start_6_web.sh`
+
+---
+
+### 11. Утилиты (`utils/`)
+
+- **`utils/__init__.py`** — функции работы с датами: `week_start`, `to_week_datetime`, `iter_weeks_between`
+- **`utils/cli.py`** — `parse_date(s)`: парсинг `YYYY-MM-DD` для argparse
+- **`utils/logging_setup.py`** — `setup_logging(level, log_file, fmt)`: text/json форматы, RotatingFileHandler
+- **`utils/diagnostics.py`** — функции диагностики БД: coverage, top keywords, latest update, search
+
+---
+
+### 12. Тесты (`tests/`)
+
+**200 тестов** в двух категориях:
+
+- **Unit-тесты** (`tests/test_*.py`) — 175 тестов, используют `unittest.mock`
+  - Патчи нацелены на фактический модуль (`aggregate.MongoStore`, `fetch.ArxivApiClient` и т.д.), а не на `pipeline.*`
+- **Интеграционные тесты** (`tests/integration/test_store_integration.py`) — 25 тестов
+  - Используют `mongomock` для реальной MongoDB-семантики без запущенного сервера
+  - Покрывают: upsert-идемпотентность, накопление счётчиков, кэширование агрегатов, запросы на экстракцию, операции очистки
+
+Запуск: `./sh/run_tests.sh -v`
 
 ---
 
@@ -223,16 +318,17 @@ ACTIVE_EXTRACTOR_KEY = "1_count_stopwords"  # изменить здесь
 # MongoDB
 ./sh/start_1_db.sh                  # systemctl или ~/mongodb/bin/mongod
 
-# Бэкенд (каждый сервис в отдельном процессе)
-./sh/start_2_1_fetch.sh              # скачивание статей — раз в сутки
-./sh/start_2_2_extract.sh            # ключевые слова — раз в час
-./sh/start_2_3_aggregates_plots.sh         # агрегаты + графики — раз в час
+# Бэкенд (каждый сервис в отдельном процессе с авто-перезапуском)
+./sh/start_2_fetch.sh              # скачивание статей — раз в сутки
+./sh/start_3_extract.sh            # ключевые слова — раз в час
+./sh/start_4_aggregates_plots.sh   # агрегаты + графики — раз в час
 
-# Фронтенд (Telegram-бот)
-./sh/start_3_frontend.sh
+# Фронтенд
+./sh/start_5_frontend.sh             # Telegram-бот
+./sh/start_6_web.sh                  # веб-дашборд (FastAPI)
 
 # Тесты
-./sh/run_tests.sh -v        # 142 теста
+./sh/run_tests.sh -v                 # 200 тестов
 ```
 
 ---

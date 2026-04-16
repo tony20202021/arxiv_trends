@@ -20,7 +20,7 @@ python scripts/run_scheduler.py --step 2 --from 2025-04-01 --to 2026-04-05 --run
 python scripts/run_scheduler.py --step 3 --run-once
 
 # 5. Запустить Telegram-бот
-./sh/start_3_frontend.sh
+./sh/start_5_frontend.sh
 ```
 
 ---
@@ -31,16 +31,17 @@ python scripts/run_scheduler.py --step 3 --run-once
 
 ```bash
 ./sh/start_1_db.sh
-./sh/start_2_1_fetch.sh        # скачивание статей — раз в сутки
-./sh/start_2_2_extract.sh      # ключевые слова — раз в час
-./sh/start_2_3_aggregates_plots.sh   # агрегаты + графики — раз в час
-./sh/start_3_frontend.sh   # Telegram-бот
+./sh/start_2_fetch.sh        # скачивание статей — раз в сутки
+./sh/start_3_extract.sh      # ключевые слова — раз в час
+./sh/start_4_aggregates_plots.sh   # агрегаты + графики — раз в час
+./sh/start_5_frontend.sh   # Telegram-бот
 ```
 
 Каждый скрипт бэкенда отслеживает только свои каталоги через watchfiles:
-- `start_2_1_fetch.sh` — `backend/arxiv`, `backend/storage`, `backend/pipeline.py`
-- `start_2_2_extract.sh` — `backend/keywords`, `backend/llm`, `backend/storage`, `backend/pipeline.py`
-- `start_2_3_aggregates_plots.sh` — `backend/analytics`, `backend/plots`, `backend/storage`, `backend/pipeline.py`
+- `start_2_fetch.sh` — `backend/arxiv`, `backend/storage`, `backend/fetch.py`, `backend/pipeline.py`
+- `start_3_extract.sh` — `backend/keywords`, `backend/llm`, `backend/storage`, `backend/extract.py`, `backend/pipeline.py`
+- `start_4_aggregates_plots.sh` — `backend/analytics`, `backend/plots`, `backend/storage`, `backend/aggregate.py`, `backend/plot_service.py`, `backend/pipeline.py`
+- `start_5_frontend.sh` — `frontend/telegram_bot`, `config`, `utils`
 
 ---
 
@@ -50,10 +51,11 @@ python scripts/run_scheduler.py --step 3 --run-once
 |---|---|
 | `setup_conda.sh` | Создать conda-окружение `conda_arxive_trends` |
 | `start_1_db.sh` | Запустить MongoDB |
-| `start_2_1_fetch.sh` | Бэкенд 1: скачивание статей из arXiv (раз в сутки) |
-| `start_2_2_extract.sh` | Бэкенд 2: извлечение ключевых слов (раз в час) |
-| `start_2_3_aggregates_plots.sh` | Бэкенд 3+4: агрегаты и графики (раз в час) |
-| `start_3_frontend.sh` | Telegram-бот с авто-перезапуском |
+| `start_2_fetch.sh` | Бэкенд 1: скачивание статей из arXiv (раз в сутки) |
+| `start_3_extract.sh` | Бэкенд 2: извлечение ключевых слов (раз в час) |
+| `start_4_aggregates_plots.sh` | Бэкенд 3+4: агрегаты и графики (раз в час) |
+| `start_5_frontend.sh` | Telegram-бот с авто-перезапуском |
+| `start_6_web.sh` | Веб-дашборд (FastAPI) с авто-перезапуском |
 | `run_tests.sh` | Запустить тесты |
 
 ### Аргументы run_scheduler.py (вызывается через sh-скрипты)

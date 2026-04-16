@@ -84,7 +84,7 @@ Type=simple
 User=$RUN_USER
 WorkingDirectory=$PROJECT_DIR
 Environment="PATH=$PATH_ENV"
-ExecStart=/bin/bash $PROJECT_DIR/sh/start_2_1_fetch.sh
+ExecStart=/bin/bash $PROJECT_DIR/sh/start_2_fetch.sh
 Restart=on-failure
 RestartSec=30
 
@@ -105,7 +105,7 @@ Type=simple
 User=$RUN_USER
 WorkingDirectory=$PROJECT_DIR
 Environment="PATH=$PATH_ENV"
-ExecStart=/bin/bash $PROJECT_DIR/sh/start_2_2_extract.sh
+ExecStart=/bin/bash $PROJECT_DIR/sh/start_3_extract.sh
 Restart=on-failure
 RestartSec=30
 
@@ -126,7 +126,7 @@ Type=simple
 User=$RUN_USER
 WorkingDirectory=$PROJECT_DIR
 Environment="PATH=$PATH_ENV"
-ExecStart=/bin/bash $PROJECT_DIR/sh/start_2_3_aggregates_plots.sh
+ExecStart=/bin/bash $PROJECT_DIR/sh/start_4_aggregates_plots.sh
 Restart=on-failure
 RestartSec=30
 
@@ -147,7 +147,7 @@ Type=simple
 User=$RUN_USER
 WorkingDirectory=$PROJECT_DIR
 Environment="PATH=$PATH_ENV"
-ExecStart=/bin/bash $PROJECT_DIR/sh/start_3_frontend.sh
+ExecStart=/bin/bash $PROJECT_DIR/sh/start_5_frontend.sh
 Restart=on-failure
 RestartSec=10
 

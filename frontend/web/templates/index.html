@@ -70,6 +70,7 @@
     .card img {
       width: 100%; display: block;
       background: #fafafa;
+      cursor: zoom-in;
     }
 
     .no-data {
@@ -127,31 +128,41 @@
     {% set _active = namespace(found=false) %}
     {% if d.has_popular %}{% set _active.found = true %}
     <div class="tab-content active" id="{{ d.id }}-popular">
-      <img src="/plots/{{ d.id }}/top_popular.png" alt="top popular {{ d.id }}" loading="lazy">
+      <a href="/plots/{{ d.id }}/top_popular.png" target="_blank">
+        <img src="/plots/{{ d.id }}/top_popular.png" alt="top popular {{ d.id }}" loading="lazy">
+      </a>
     </div>
     {% endif %}
 
     {% if d.has_growing %}
     <div class="tab-content {% if not _active.found %}active{% set _active.found = true %}{% endif %}" id="{{ d.id }}-growing">
-      <img src="/plots/{{ d.id }}/top_growing.png" alt="top growing {{ d.id }}" loading="lazy">
+      <a href="/plots/{{ d.id }}/top_growing.png" target="_blank">
+        <img src="/plots/{{ d.id }}/top_growing.png" alt="top growing {{ d.id }}" loading="lazy">
+      </a>
     </div>
     {% endif %}
 
     {% if d.has_popular_pct %}
     <div class="tab-content {% if not _active.found %}active{% set _active.found = true %}{% endif %}" id="{{ d.id }}-popular_pct">
-      <img src="/plots/{{ d.id }}/top_popular_pct.png" alt="top popular pct {{ d.id }}" loading="lazy">
+      <a href="/plots/{{ d.id }}/top_popular_pct.png" target="_blank">
+        <img src="/plots/{{ d.id }}/top_popular_pct.png" alt="top popular pct {{ d.id }}" loading="lazy">
+      </a>
     </div>
     {% endif %}
 
     {% if d.has_growing_pct %}
     <div class="tab-content {% if not _active.found %}active{% set _active.found = true %}{% endif %}" id="{{ d.id }}-growing_pct">
-      <img src="/plots/{{ d.id }}/top_growing_pct.png" alt="top growing pct {{ d.id }}" loading="lazy">
+      <a href="/plots/{{ d.id }}/top_growing_pct.png" target="_blank">
+        <img src="/plots/{{ d.id }}/top_growing_pct.png" alt="top growing pct {{ d.id }}" loading="lazy">
+      </a>
     </div>
     {% endif %}
 
     {% if d.has_articles %}
     <div class="tab-content {% if not _active.found %}active{% endif %}" id="{{ d.id }}-articles">
-      <img src="/plots/{{ d.id }}/articles_per_week.png" alt="articles {{ d.id }}" loading="lazy">
+      <a href="/plots/{{ d.id }}/articles_per_week.png" target="_blank">
+        <img src="/plots/{{ d.id }}/articles_per_week.png" alt="articles {{ d.id }}" loading="lazy">
+      </a>
     </div>
     {% endif %}
   </div>
@@ -160,7 +171,7 @@
 {% else %}
 <div class="no-data">
   <p>Нет готовых графиков.<br>
-  Запустите pipeline: <code>./sh/start_2_1_fetch.sh</code> &amp;&amp; <code>./sh/start_2_2_extract.sh</code> &amp;&amp; <code>./sh/start_2_3_aggregates_plots.sh</code></p>
+  Запустите pipeline: <code>./sh/start_2_fetch.sh</code> &amp;&amp; <code>./sh/start_3_extract.sh</code> &amp;&amp; <code>./sh/start_4_aggregates_plots.sh</code></p>
 </div>
 {% endif %}
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import datetime as dt
 from typing import List
 
 import numpy as np
@@ -34,9 +35,17 @@ def pivot_week_keyword_pct(pivot: pd.DataFrame, article_counts: dict) -> pd.Data
     """
     if pivot.empty or not article_counts:
         return pivot.copy().astype(float)
+
+    # pymongo возвращает naive datetime, to_frame() конвертирует в UTC-aware.
+    # Приводим ключи article_counts к UTC-aware чтобы совпадали с индексом pivot.
+    normalized = {
+        (k.replace(tzinfo=dt.timezone.utc) if isinstance(k, dt.datetime) and k.tzinfo is None else k): v
+        for k, v in article_counts.items()
+    }
+
     pct = pivot.copy().astype(float)
     for week in pct.index:
-        n = article_counts.get(week, 0)
+        n = normalized.get(week, 0)
         if n > 0:
             pct.loc[week] = pct.loc[week] / n * 100
         else:

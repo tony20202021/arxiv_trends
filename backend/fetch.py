@@ -164,11 +164,13 @@ def fetch_abstracts(
     weeks = iter_weeks_between(week_from, week_to)
 
     stats: dict[str, dict] = {}
+    n_domains = len(domains)
 
-    for domain in domains:
+    for d_idx, domain in enumerate(domains, 1):
         dname = domain["domain"]
-        logger.info("=== fetch_abstracts '%s': %s … %s, max=%s ===",
-                    dname, weeks[0], weeks[-1], max_articles if max_articles != -1 else "∞")
+        logger.info("=== [домен %d/%d] fetch_abstracts '%s': %s … %s, max=%s ===",
+                    d_idx, n_domains, dname, weeks[0], weeks[-1],
+                    max_articles if max_articles != -1 else "∞")
 
         entries: list[dict] = []
         truncated = False
@@ -185,7 +187,7 @@ def fetch_abstracts(
             remaining = (max_articles - len(entries)) if max_articles != -1 else -1
             w_entries, w_trunc = _fetch_range(
                 api, domain["arxiv_search_query"], w_from, w_to, remaining,
-                prefix=f"({w_idx}/{n_weeks}) ",
+                prefix=f"[домен {d_idx}/{n_domains}] (нед. {w_idx}/{n_weeks}) ",
             )
             entries.extend(w_entries)
             if w_trunc:
@@ -198,8 +200,8 @@ def fetch_abstracts(
                 eta_sec = avg_sec * weeks_left
                 eta_clock = (dt.datetime.now(dt.timezone.utc).astimezone() + dt.timedelta(seconds=eta_sec)).strftime("%H:%M %Z")
                 logger.info(
-                    "  (%d/%d) прошло %s, осталось ~%s (ETA ~%s)",
-                    w_idx, n_weeks,
+                    "  [домен %d/%d] (нед. %d/%d) прошло %s, осталось ~%s (ETA ~%s)",
+                    d_idx, n_domains, w_idx, n_weeks,
                     str(dt.timedelta(seconds=int(elapsed_sec))),
                     str(dt.timedelta(seconds=int(eta_sec))),
                     eta_clock,
