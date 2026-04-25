@@ -18,6 +18,8 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import urllib.request
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -42,7 +44,26 @@ def _load_titles() -> dict[str, str]:
 
 _TITLES = _load_titles()
 
-app = FastAPI(title="arXiv Trends Dashboard", docs_url=None, redoc_url=None)
+def _print_urls(host: str, port: str) -> None:
+    local = f"http://{'localhost' if host in ('0.0.0.0', '') else host}:{port}"
+    print(f"Веб-дашборд: {local}", flush=True)
+    try:
+        ip = urllib.request.urlopen("https://api.ipify.org", timeout=3).read().decode().strip()
+        print(f"Внешний адрес: http://{ip}:{port}", flush=True)
+    except Exception:
+        pass
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    _print_urls(
+        os.environ.get("WEB_HOST", "127.0.0.1"),
+        os.environ.get("WEB_PORT", "8000"),
+    )
+    yield
+
+
+app = FastAPI(title="arXiv Trends Dashboard", docs_url=None, redoc_url=None, lifespan=_lifespan)
 
 # Отдавать PNG-файлы напрямую
 _plots_dir = OUTPUTS_DIR / "plots"
