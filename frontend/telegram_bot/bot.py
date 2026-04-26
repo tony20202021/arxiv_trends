@@ -97,30 +97,63 @@ def _read_keywords_data(plot_path: Path) -> dict:
         return {}
 
 
-def _format_keywords_message(label: str, data: dict) -> str:
-    """Форматирует список ключевых слов как отдельное текстовое сообщение.
+_COLOR_EMOJI: dict[str, str] = {
+    "#1f77b4": "🔵",
+    "#ff7f0e": "🟠",
+    "#2ca02c": "🟢",
+    "#d62728": "🔴",
+    "#9467bd": "🟣",
+    "#8c564b": "🟤",
+    "#e377c2": "🩷",
+    "#7f7f7f": "⚫",
+    "#bcbd22": "🟡",
+    "#17becf": "🩵",
+}
+_MARKER_CHAR: dict[str, str] = {
+    "o": "●", "s": "■", "^": "▲", "D": "◆", "v": "▼",
+    "P": "✚", "*": "★", "X": "✖", "h": "⬡",
+    "<": "◀", ">": "▶", "p": "⬠", "H": "⬡", "+": "＋", "x": "×",
+}
 
-    Пример:
-        📌 Top-популярные:
-        1. learn  (1 234, 3.2%)
-        2. train  (987, 2.5%)
-    """
+
+def _fmt_slope(slope: float) -> str:
+    if abs(slope) >= 10:
+        return f"{slope:+.0f}/нед"
+    if abs(slope) >= 1:
+        return f"{slope:+.1f}/нед"
+    return f"{slope:+.2f}/нед"
+
+
+def _format_keywords_message(label: str, data: dict, is_growing: bool = False) -> str:
     keywords = data.get("keywords", [])
     if not keywords:
         return ""
-    counts = data.get("counts", {})
-    pcts = data.get("pcts", {})
+    counts  = data.get("counts", {})
+    pcts    = data.get("pcts", {})
+    growth  = data.get("growth", {})
+    colors  = data.get("colors", {})
+    markers = data.get("markers", {})
 
     lines = [f"📌 {label}:"]
     for i, kw in enumerate(keywords, 1):
+        color_e  = _COLOR_EMOJI.get(colors.get(kw, ""), "")
+        marker_c = _MARKER_CHAR.get(markers.get(kw, ""), "")
+        prefix   = f"{color_e}{marker_c} " if (color_e or marker_c) else ""
+
         count = counts.get(kw)
-        pct = pcts.get(kw)
-        if count is not None and pct is not None:
-            lines.append(f"{i}. {kw}  ({int(count):,}, {pct:.1f}%)")
-        elif count is not None:
-            lines.append(f"{i}. {kw}  ({int(count):,})")
-        else:
-            lines.append(f"{i}. {kw}")
+        pct   = pcts.get(kw)
+        slope = growth.get(kw) if is_growing else None
+
+        parts = []
+        if count is not None:
+            parts.append(f"{int(count):,}")
+        if pct is not None:
+            parts.append(f"{pct:.1f}%")
+        if slope is not None:
+            parts.append(f"↑{_fmt_slope(slope)}")
+
+        suffix = f"  ({', '.join(parts)})" if parts else ""
+        lines.append(f"{prefix}{i}. {kw}{suffix}")
 
     return "\n".join(lines)
 
@@ -249,7 +282,7 @@ async def _send_trends(domain_id: str, update: Update) -> None:
         )
     if plots["growing"]:
         data = _read_keywords_data(plots["growing"])
-        msg = _format_keywords_message("Top-растущие", data)
+        msg = _format_keywords_message("Top-растущие", data, is_growing=True)
         if msg:
             domain_line = f"({title})" if title else ""
             await reply.reply_text(f"{domain_id} {domain_line}\n{msg}".strip())

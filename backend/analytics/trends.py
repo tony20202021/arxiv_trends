@@ -1,6 +1,6 @@
 from __future__ import annotations
 import datetime as dt
-from typing import List
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -85,3 +85,27 @@ def top_growing_last_window(
 
     top = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
     return [k for k, _ in top]
+
+
+def growing_slopes(
+    pivot: pd.DataFrame,
+    keywords: List[str],
+    window_weeks: int = GROWTH_WINDOW_WEEKS,
+) -> Dict[str, float]:
+    """Linear slope (counts/week) for each keyword over the growth window."""
+    if pivot.empty or not keywords:
+        return {}
+    pivot = pivot.sort_index()
+    last_week = pivot.index.max()
+    window_start = last_week - pd.Timedelta(weeks=window_weeks - 1)
+    w = pivot[pivot.index >= window_start]
+    if len(w.index) < 2:
+        return {}
+    x = np.arange(len(w.index), dtype=np.float32)
+    result = {}
+    for kw in keywords:
+        if kw not in w.columns:
+            continue
+        y = w[kw].values.astype(np.float32)
+        result[kw] = float(np.polyfit(x, y, 1)[0])
+    return result
