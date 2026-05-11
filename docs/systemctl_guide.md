@@ -7,10 +7,12 @@ Systemd позволяет автоматически запускать все 
 
 **Порядок зависимостей:**
 ```
-arxiv-db  →  arxiv-backend-1  →  arxiv-frontend
-              arxiv-backend-2
-              arxiv-backend-3
+mongod (системный) →  arxiv-db  →  arxiv-backend-1  →  arxiv-frontend
+                                    arxiv-backend-2
+                                    arxiv-backend-3
 ```
+
+> **Примечание:** При установке MongoDB через apt сервис `mongod` управляется системой независимо от `arxiv-db`. Сервис `arxiv-db` (скрипт `start_1_db.sh`) автоматически определяет системный MongoDB и использует `systemctl`, не запуская отдельный процесс.
 
 ---
 
@@ -106,12 +108,29 @@ bash sh/start_2_fetch.sh --run-once --log-level DEBUG
 
 ### MongoDB не запускается
 
+**При системной установке через apt (рекомендуется):**
+```bash
+# Статус и логи
+sudo systemctl status mongod
+sudo journalctl -u mongod -n 50 --no-pager
+
+# Проверить конфиг (порт должен быть 27027)
+cat /etc/mongod.conf
+
+# Перезапустить
+sudo systemctl restart mongod
+
+# Проверить занятость порта
+lsof -i :27027
+```
+
+**При установке вручную (бинарник в ~/mongodb/):**
 ```bash
 # Логи MongoDB
 cat ~/mongodb/log/mongod.log
 
 # Проверить занятость порта
-lsof -i :27017
+lsof -i :27027
 
 # Проверить наличие директорий
 ls -la ~/mongodb/data ~/mongodb/log

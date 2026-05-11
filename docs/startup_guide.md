@@ -3,23 +3,44 @@
 ## Быстрый старт (первый раз)
 
 ```bash
-# 1. Создать conda-окружение
-./sh/setup_conda.sh
-conda activate conda_arxive_trends
+# 0. Установить MongoDB через apt (системный сервис, рекомендуется)
+curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
+echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+sudo apt-get update && sudo apt-get install -y mongodb-org
 
-# 2. Настроить переменные окружения
+# Настроить порт в /etc/mongod.conf (net.port: 27027) и запустить:
+sudo systemctl enable mongod
+sudo systemctl start mongod
+
+# 1. Установить Miniconda (если не установлена)
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh
+bash /tmp/miniconda.sh -b -p ~/miniconda3
+
+# 2. Создать conda-окружение (MongoDB из environment.yml не используется — установлен через apt)
+source ~/miniconda3/etc/profile.d/conda.sh
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+conda create -y -n conda_arxive_trends python=3.10 -c conda-forge
+conda activate conda_arxive_trends
+conda install -y -c conda-forge spacy=3.7
+~/miniconda3/envs/conda_arxive_trends/bin/pip install -r requirements.txt
+
+# 3. Настроить переменные окружения
 cp .env.example .env
 nano .env   # заполнить MONGO_URI, TELEGRAM_BOT_TOKEN и др.
 
-# 3. Запустить MongoDB
+# 4. Запустить MongoDB
 ./sh/start_1_db.sh
 
-# 4. Заполнить данные (один прогон каждого шага)
+# 5. Настроить systemd-сервисы
+./sh/setup_systemd.sh
+
+# 6. Заполнить данные (один прогон каждого шага)
 python scripts/run_scheduler.py --step 1 --from 2025-04-01 --to 2026-04-05 --run-once
 python scripts/run_scheduler.py --step 2 --from 2025-04-01 --to 2026-04-05 --run-once
 python scripts/run_scheduler.py --step 3 --run-once
 
-# 5. Запустить Telegram-бот
+# 7. Запустить Telegram-бот
 ./sh/start_5_frontend.sh
 ```
 

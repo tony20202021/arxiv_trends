@@ -111,6 +111,7 @@ def render_plots(
         growing = agg.get("top_growing", [])
 
         week_datetimes = sorted(store.col.distinct("week_start", {"domain": dname}))
+        week_datetimes = [w.replace(tzinfo=None) if w.tzinfo is not None else w for w in week_datetimes]
         if _since is not None:
             week_datetimes = [w for w in week_datetimes if w >= _since]
         week_datetimes = [w for w in week_datetimes if w <= _before]
@@ -124,6 +125,7 @@ def render_plots(
         pivot = pivot_week_keyword(df)
 
         art_counts = store.get_article_counts_by_week(dname)
+        art_counts = {(k.replace(tzinfo=None) if k.tzinfo is not None else k): v for k, v in art_counts.items()}
         if _since is not None:
             art_counts = {k: v for k, v in art_counts.items() if k >= _since}
         art_counts = {k: v for k, v in art_counts.items() if k <= _before}
@@ -199,6 +201,7 @@ def render_plots(
     agg_all = store.get_aggregated("_all")
     if agg_all:
         all_week_datetimes = store.get_all_week_starts()
+        all_week_datetimes = [w.replace(tzinfo=None) if w.tzinfo is not None else w for w in all_week_datetimes]
         if _since is not None:
             all_week_datetimes = [w for w in all_week_datetimes if w >= _since]
         all_week_datetimes = [w for w in all_week_datetimes if w <= _before]

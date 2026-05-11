@@ -68,6 +68,7 @@ def recompute_aggregates(
                 continue
 
         week_datetimes = sorted(store.col.distinct("week_start", {"domain": dname}))
+        week_datetimes = [w.replace(tzinfo=None) if w.tzinfo is not None else w for w in week_datetimes]
         if _since is not None:
             week_datetimes = [w for w in week_datetimes if w >= _since]
         week_datetimes = [w for w in week_datetimes if w <= _before]
@@ -104,6 +105,7 @@ def recompute_aggregates(
     # Суммарный агрегат по всем доменам
     logger.info("=== Суммарный агрегат по всем доменам ===")
     all_week_datetimes = store.get_all_week_starts()
+    all_week_datetimes = [w.replace(tzinfo=None) if w.tzinfo is not None else w for w in all_week_datetimes]
     if _since is not None:
         all_week_datetimes = [w for w in all_week_datetimes if w >= _since]
     all_week_datetimes = [w for w in all_week_datetimes if w <= _before]

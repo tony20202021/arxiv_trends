@@ -5,9 +5,11 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python
+  - python=3.10
   - pip
-  - conda-forge::mongodb=5.0
+  - conda-forge::spacy=3.7
   - pip:
       - -r requirements.txt
+# MongoDB устанавливается отдельно через apt (не через conda):
+# https://www.mongodb.org/static/pgp/server-7.0.asc
       
