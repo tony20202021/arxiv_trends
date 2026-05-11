@@ -33,13 +33,15 @@ SERVICE_DIR="/etc/systemd/system"
 # --- Режим удаления ---
 if [ "${1:-}" = "--remove" ]; then
     echo "Удаляем сервисы arXiv Trends..."
-    sudo systemctl stop arxiv-frontend arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-db 2>/dev/null || true
-    sudo systemctl disable arxiv-frontend arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-db 2>/dev/null || true
+    sudo systemctl stop arxiv-tunnel arxiv-web arxiv-frontend arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-db 2>/dev/null || true
+    sudo systemctl disable arxiv-tunnel arxiv-web arxiv-frontend arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-db 2>/dev/null || true
     sudo rm -f "$SERVICE_DIR/arxiv-db.service" \
                "$SERVICE_DIR/arxiv-backend-1.service" \
                "$SERVICE_DIR/arxiv-backend-2.service" \
                "$SERVICE_DIR/arxiv-backend-3.service" \
-               "$SERVICE_DIR/arxiv-frontend.service"
+               "$SERVICE_DIR/arxiv-frontend.service" \
+               "$SERVICE_DIR/arxiv-web.service" \
+               "$SERVICE_DIR/arxiv-tunnel.service"
     sudo systemctl daemon-reload
     echo "Сервисы удалены."
     exit 0
@@ -156,11 +158,52 @@ WantedBy=multi-user.target
 EOF
 echo "✓ arxiv-frontend.service"
 
+# --- arxiv-web.service ---
+sudo tee "$SERVICE_DIR/arxiv-web.service" > /dev/null <<EOF
+[Unit]
+Description=arXiv Trends - Web Dashboard (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=$RUN_USER
+WorkingDirectory=$PROJECT_DIR
+Environment="PATH=$PATH_ENV"
+ExecStart=/bin/bash $PROJECT_DIR/sh/start_6_web.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+echo "✓ arxiv-web.service"
+
+# --- arxiv-tunnel.service ---
+sudo tee "$SERVICE_DIR/arxiv-tunnel.service" > /dev/null <<EOF
+[Unit]
+Description=arXiv Trends - Cloudflare Tunnel
+After=arxiv-web.service
+Requires=arxiv-web.service
+
+[Service]
+Type=simple
+User=$RUN_USER
+WorkingDirectory=$PROJECT_DIR
+Environment="PATH=$PATH_ENV"
+ExecStart=/bin/bash $PROJECT_DIR/sh/start_7_tunnel.sh
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
+EOF
+echo "✓ arxiv-tunnel.service"
+
 # --- Активация ---
 sudo systemctl daemon-reload
-sudo systemctl enable arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend
+sudo systemctl enable arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend arxiv-web arxiv-tunnel
 echo ""
 echo "Сервисы установлены и включены. Запустить:"
 echo "  sudo systemctl start arxiv-db"
 echo "  sleep 5"
-echo "  sudo systemctl start arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend"
+echo "  sudo systemctl start arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend arxiv-web arxiv-tunnel"
