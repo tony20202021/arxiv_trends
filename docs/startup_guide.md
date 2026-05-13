@@ -52,10 +52,12 @@ python scripts/run_scheduler.py --step 3 --run-once
 
 ```bash
 ./sh/start_1_db.sh
-./sh/start_2_fetch.sh        # скачивание статей — раз в сутки
-./sh/start_3_extract.sh      # ключевые слова — раз в час
+./sh/start_2_fetch.sh              # скачивание статей — раз в сутки
+./sh/start_3_extract.sh            # ключевые слова — раз в час
 ./sh/start_4_aggregates_plots.sh   # агрегаты + графики — раз в час
-./sh/start_5_frontend.sh   # Telegram-бот
+./sh/start_5_frontend.sh           # Telegram-бот
+./sh/start_6_web.sh                # веб-дашборд (FastAPI)
+./sh/start_7_tunnel.sh             # Cloudflare Tunnel (публичный доступ к дашборду)
 ```
 
 Каждый скрипт бэкенда отслеживает только свои каталоги через watchfiles:
@@ -77,6 +79,7 @@ python scripts/run_scheduler.py --step 3 --run-once
 | `start_4_aggregates_plots.sh` | Бэкенд 3+4: агрегаты и графики (раз в час) |
 | `start_5_frontend.sh` | Telegram-бот с авто-перезапуском |
 | `start_6_web.sh` | Веб-дашборд (FastAPI) с авто-перезапуском |
+| `start_7_tunnel.sh` | Cloudflare Tunnel — публичный HTTPS-доступ к дашборду |
 | `run_tests.sh` | Запустить тесты |
 
 ### Аргументы run_scheduler.py (вызывается через sh-скрипты)

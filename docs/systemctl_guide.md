@@ -10,6 +10,7 @@ Systemd позволяет автоматически запускать все 
 mongod (системный) →  arxiv-db  →  arxiv-backend-1  →  arxiv-frontend
                                     arxiv-backend-2
                                     arxiv-backend-3
+                                    arxiv-web  →  arxiv-tunnel
 ```
 
 > **Примечание:** При установке MongoDB через apt сервис `mongod` управляется системой независимо от `arxiv-db`. Сервис `arxiv-db` (скрипт `start_1_db.sh`) автоматически определяет системный MongoDB и использует `systemctl`, не запуская отдельный процесс.
@@ -32,10 +33,10 @@ nano .env
 # Запустить
 sudo systemctl start arxiv-db
 sleep 5
-sudo systemctl start arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend
+sudo systemctl start arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend arxiv-web arxiv-tunnel
 
 # Проверить статус
-sudo systemctl status arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend
+sudo systemctl status arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend arxiv-web arxiv-tunnel
 ```
 
 ### Удаление сервисов
@@ -53,8 +54,12 @@ sudo systemctl status arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 a
 sudo systemctl start arxiv-db
 sudo systemctl start arxiv-backend-1 arxiv-backend-2 arxiv-backend-3
 sudo systemctl start arxiv-frontend
+sudo systemctl start arxiv-web
+sudo systemctl start arxiv-tunnel
 
 # Остановка
+sudo systemctl stop arxiv-tunnel
+sudo systemctl stop arxiv-web
 sudo systemctl stop arxiv-frontend
 sudo systemctl stop arxiv-backend-1 arxiv-backend-2 arxiv-backend-3
 sudo systemctl stop arxiv-db
@@ -62,10 +67,11 @@ sudo systemctl stop arxiv-db
 # Перезапуск (например, после обновления кода)
 sudo systemctl restart arxiv-backend-1 arxiv-backend-2 arxiv-backend-3
 sudo systemctl restart arxiv-frontend
+sudo systemctl restart arxiv-web arxiv-tunnel
 
 # Включить / отключить автозапуск при перезагрузке
-sudo systemctl enable arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend
-sudo systemctl disable arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend
+sudo systemctl enable arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend arxiv-web arxiv-tunnel
+sudo systemctl disable arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 arxiv-frontend arxiv-web arxiv-tunnel
 ```
 
 ---
@@ -87,6 +93,10 @@ sudo journalctl -u arxiv-backend-2 --since "1 hour ago"
 
 # Все бэкенд-сервисы вместе
 sudo journalctl -u arxiv-db -u arxiv-backend-1 -u arxiv-backend-2 -u arxiv-backend-3 -f
+
+# Веб и туннель
+sudo journalctl -u arxiv-web -n 50 --no-pager
+sudo journalctl -u arxiv-tunnel -n 50 --no-pager
 ```
 
 ---
@@ -150,10 +160,22 @@ sleep 30
 sudo systemctl start arxiv-frontend
 ```
 
+### Cloudflare Tunnel — узнать текущий публичный адрес
+
+```bash
+# Адрес сохраняется автоматически при запуске туннеля
+cat .outputs/.tunnel_url
+
+# Или из логов сервиса
+sudo journalctl -u arxiv-tunnel -n 30 --no-pager | grep trycloudflare
+```
+
+> **Примечание:** Quick Tunnel (без аккаунта Cloudflare) генерирует случайный адрес при каждом запуске. Для постоянного адреса нужен домен и аккаунт Cloudflare.
+
 ### Проверить все процессы проекта
 
 ```bash
-ps aux | grep -E "mongod|run_scheduler|bot\.py" | grep -v grep
+ps aux | grep -E "mongod|run_scheduler|bot\.py|uvicorn|cloudflared" | grep -v grep
 ```
 
 ### Переустановить сервисы после изменения .env или пути к проекту

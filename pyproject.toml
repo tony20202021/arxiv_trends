@@ -9,3 +9,6 @@ license = {text = "MIT"}
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["backend", "."]
+filterwarnings = [
+    "ignore::DeprecationWarning:spacy",
+]

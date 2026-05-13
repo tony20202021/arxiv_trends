@@ -58,11 +58,18 @@ _DOMAIN_TITLES = _load_domain_titles()
 def _resolve_web_url() -> str:
     """Вернуть публичный URL веб-дашборда.
 
-    Приоритет: WEB_URL из .env → внешний IP (ipify) + WEB_PORT.
+    Приоритет: WEB_URL из .env → .tunnel_url (Cloudflare) → внешний IP + WEB_PORT.
     """
     url = os.environ.get("WEB_URL", "").strip().rstrip("/")
     if url:
         return url
+    tunnel_file = Path(__file__).parent.parent.parent / ".outputs" / ".tunnel_url"
+    try:
+        tunnel_url = tunnel_file.read_text(encoding="utf-8").strip()
+        if tunnel_url:
+            return tunnel_url
+    except OSError:
+        pass
     port = os.environ.get("WEB_PORT", "8300")
     try:
         import urllib.request
