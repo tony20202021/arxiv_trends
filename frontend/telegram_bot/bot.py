@@ -55,31 +55,49 @@ def _load_domain_titles() -> dict[str, str]:
 _DOMAIN_TITLES = _load_domain_titles()
 
 
-def _resolve_web_url() -> str:
-    """Вернуть публичный URL веб-дашборда.
+def _get_external_ips() -> list[str]:
+    import subprocess
+    _PRIVATE = ("10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.",
+                "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25.",
+                "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31.")
+    try:
+        out = subprocess.check_output(["ip", "-4", "-o", "addr", "show"], text=True)
+        ips = []
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[1] != "lo":
+                ip = parts[3].split("/")[0]
+                if not ip.startswith(_PRIVATE):
+                    ips.append(ip)
+        return ips
+    except Exception:
+        return []
 
-    Приоритет: WEB_URL из .env → .tunnel_url (Cloudflare) → внешний IP + WEB_PORT.
+
+def _resolve_web_urls() -> list[str]:
+    """Вернуть список публичных URL веб-дашборда.
+
+    Приоритет: WEB_URL из .env → .tunnel_url (Cloudflare) → все внешние IP + WEB_PORT.
     """
     url = os.environ.get("WEB_URL", "").strip().rstrip("/")
     if url:
-        return url
+        return [url]
     tunnel_file = Path(__file__).parent.parent.parent / ".outputs" / ".tunnel_url"
     try:
         tunnel_url = tunnel_file.read_text(encoding="utf-8").strip()
         if tunnel_url:
-            return tunnel_url
+            return [tunnel_url]
     except OSError:
         pass
     port = os.environ.get("WEB_PORT", "8300")
-    try:
-        import urllib.request
-        ip = urllib.request.urlopen("https://api.ipify.org", timeout=3).read().decode()
-        return f"http://{ip.strip()}:{port}"
-    except Exception:
-        return ""
+    ips = _get_external_ips()
+    if ips:
+        return [f"http://{ip}:{port}" for ip in ips]
+    return []
 
 
-WEB_URL = _resolve_web_url()
+WEB_URL = _resolve_web_urls()[0] if _resolve_web_urls() else ""
+WEB_URLS = _resolve_web_urls()
 
 
 def _plot_updated_at(path: Path) -> str:
@@ -195,8 +213,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_web(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if WEB_URL:
-        await update.message.reply_text(f"Веб-дашборд: {WEB_URL}")
+    if WEB_URLS:
+        lines = "\n".join(WEB_URLS)
+        await update.message.reply_text(f"Веб-дашборд:\n{lines}")
     else:
         await update.message.reply_text(
             "WEB_URL не задан в .env — добавьте адрес дашборда."

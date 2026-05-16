@@ -44,14 +44,30 @@ def _load_titles() -> dict[str, str]:
 
 _TITLES = _load_titles()
 
+def _get_external_ips() -> list[str]:
+    import subprocess
+    _PRIVATE = ("10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.",
+                "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25.",
+                "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31.")
+    try:
+        out = subprocess.check_output(["ip", "-4", "-o", "addr", "show"], text=True)
+        ips = []
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[1] != "lo":
+                ip = parts[3].split("/")[0]
+                if not ip.startswith(_PRIVATE):
+                    ips.append(ip)
+        return ips
+    except Exception:
+        return []
+
+
 def _print_urls(host: str, port: str) -> None:
     local = f"http://{'localhost' if host in ('0.0.0.0', '') else host}:{port}"
     print(f"Веб-дашборд: {local}", flush=True)
-    try:
-        ip = urllib.request.urlopen("https://api.ipify.org", timeout=3).read().decode().strip()
+    for ip in _get_external_ips():
         print(f"Внешний адрес: http://{ip}:{port}", flush=True)
-    except Exception:
-        pass
 
 
 @asynccontextmanager
