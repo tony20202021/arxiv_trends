@@ -59,17 +59,24 @@ _DOMAIN_TITLES, _DOMAIN_RAW = _load_domain_titles()
 
 
 def _domain_week_count(domain_slug: str) -> int:
-    """Число недель в MongoDB для домена."""
+    """Число недель в MongoDB для домена — тот же диапазон что на графике."""
     try:
         import pymongo
         mongo_uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
         mongo_db  = os.environ.get("MONGO_DB", "arxiv_trends")
         client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
         col = client[mongo_db]["weekly_keyword_counts"]
+        today = dt.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        _before = today - dt.timedelta(days=today.weekday() + 7)  # последний завершённый понедельник
+        _since  = today - dt.timedelta(weeks=52)
         if domain_slug == "_all":
-            return len(col.distinct("week_start"))
-        raw = _DOMAIN_RAW.get(domain_slug, domain_slug)
-        return len(col.distinct("week_start", {"domain": raw}))
+            weeks = col.distinct("week_start")
+        else:
+            raw = _DOMAIN_RAW.get(domain_slug, domain_slug)
+            weeks = col.distinct("week_start", {"domain": raw})
+        weeks = [w.replace(tzinfo=None) if getattr(w, "tzinfo", None) else w for w in weeks]
+        weeks = [w for w in weeks if _since <= w <= _before]
+        return len(weeks)
     except Exception:
         return 0
 
@@ -173,9 +180,12 @@ def _format_keywords_message(label: str, data: dict, is_growing: bool = False,
     keywords = data.get("keywords", [])
     if not keywords:
         return ""
-    counts  = data.get("counts", {})
-    pcts    = data.get("pcts", {})
-    growth  = data.get("growth", {})
+    counts       = data.get("counts", {})
+    pcts         = data.get("pcts", {})
+    growth       = data.get("growth", {})
+    growth_short = data.get("growth_short", {})
+    total_weeks  = data.get("total_weeks")
+    win_weeks    = data.get("growth_window_weeks")
     colors  = data.get("colors", {})
     markers = data.get("markers", {})
 
@@ -187,15 +197,20 @@ def _format_keywords_message(label: str, data: dict, is_growing: bool = False,
 
         count = counts.get(kw)
         pct   = pcts.get(kw)
-        slope = growth.get(kw) if is_growing else None
+        slope_full  = growth.get(kw)       if is_growing else None
+        slope_short = growth_short.get(kw) if is_growing else None
 
         parts = []
         if count is not None:
             parts.append(f"{int(count):,}")
         if pct is not None:
             parts.append(f"{pct:.1f}%")
-        if slope is not None:
-            parts.append(f"↑{_fmt_slope(slope, slope_unit)}")
+        if slope_full is not None and slope_short is not None:
+            w_full  = f"({total_weeks})" if total_weeks else ""
+            w_short = f"({win_weeks})"   if win_weeks  else ""
+            parts.append(f"↑{_fmt_slope(slope_full, slope_unit)}{w_full}, {_fmt_slope(slope_short, slope_unit)}{w_short}")
+        elif slope_full is not None:
+            parts.append(f"↑{_fmt_slope(slope_full, slope_unit)}")
 
         suffix = f"  ({', '.join(parts)})" if parts else ""
         lines.append(f"{prefix}{i}. {kw}{suffix}")

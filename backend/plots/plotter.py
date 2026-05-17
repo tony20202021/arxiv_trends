@@ -41,17 +41,15 @@ def plot_keywords_over_time(
     title: str,
     out_path: Path,
     keyword_styles: Optional[Dict[str, Tuple[str, str]]] = None,
-    regression_window: Optional[int] = None,
+    regression_window: bool = False,
+    regression_window_short: Optional[int] = None,
     ylabel: str = "Count",
 ):
     """Построить линейный график ключевых слов по неделям.
 
-    Args:
-        keyword_styles: словарь {keyword: (color, marker)} из build_keyword_styles.
-            Если передан — слова из разных графиков получают одинаковые цвета и маркеры.
-            Если None — стили назначаются по позиции в списке keywords.
-        regression_window: если задан — рисует линию линейной регрессии за последние
-            N недель для каждого ключевого слова (тем же цветом, тоньше и прозрачнее).
+    regression_window:       рисует линию регрессии за весь период (пунктир·····)
+    regression_window_short: рисует линию регрессии за последние N нед. (штрих - -)
+    Обе линии — тот же цвет что и кривая ключевого слова.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -94,10 +92,22 @@ def plot_keywords_over_time(
                 y_reg = slope * x + intercept
                 plt.plot(
                     pivot.index, y_reg,
-                    color=color,
-                    linewidth=2.5,
-                    alpha=0.7,
-                    linestyle=(0, (1, 1)),  # плотный пунктир-точки
+                    color=color, linewidth=2.0, alpha=0.5,
+                    linestyle=(0, (1, 1)),  # ····· весь период
+                )
+
+        if regression_window_short and len(pivot.index) >= 2:
+            n = min(regression_window_short, len(pivot.index))
+            p_short = pivot.iloc[-n:]
+            x_s = np.arange(n, dtype=np.float32)
+            y_s = p_short[kw].values.astype(np.float32) if kw in p_short.columns else None
+            if y_s is not None and y_s.sum() > 0:
+                slope_s, intercept_s = np.polyfit(x_s, y_s, 1)
+                y_reg_s = slope_s * x_s + intercept_s
+                plt.plot(
+                    p_short.index, y_reg_s,
+                    color=color, linewidth=2.5, alpha=0.85,
+                    linestyle=(0, (5, 2)),  # - - - последние N нед.
                 )
 
     plt.title(title)
