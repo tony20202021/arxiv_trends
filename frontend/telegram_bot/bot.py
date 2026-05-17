@@ -252,19 +252,65 @@ def _service_status(name: str) -> tuple[str, str]:
     return active, last
 
 
+def _top_procs(key: str, top_n: int = 3) -> str:
+    """Топ-N процессов по cpu_percent или memory_percent."""
+    try:
+        import psutil
+        procs = []
+        for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent"]):
+            try:
+                procs.append(p.info)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        procs.sort(key=lambda x: x.get(key) or 0, reverse=True)
+        unit = "%" if key == "cpu_percent" else "MB"
+        lines = []
+        for p in procs[:top_n]:
+            val = p.get(key) or 0
+            name = (p.get("name") or "?")[:20]
+            if key == "memory_percent":
+                import psutil as _ps
+                try:
+                    mem_mb = _ps.Process(p["pid"]).memory_info().rss // 1024 ** 2
+                    lines.append(f"  {name}: {mem_mb} MB")
+                except Exception:
+                    lines.append(f"  {name}: {val:.1f}%")
+            else:
+                lines.append(f"  {name}: {val:.1f}%")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def _sys_stats() -> str:
     try:
         import psutil
-        cpu = psutil.cpu_percent(interval=0.5)
+        # Первый вызов cpu_percent всегда 0.0 — нужен прогрев
+        for p in psutil.process_iter(["cpu_percent"]):
+            pass
+        import time; time.sleep(0.5)
+
+        cpu = psutil.cpu_percent(interval=0.0)
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
-        return (
-            f"CPU:  {cpu:.0f}%\n"
-            f"RAM:  {mem.used // 1024**2} / {mem.total // 1024**2} MB  "
-            f"({mem.percent:.0f}%)\n"
-            f"Disk: {disk.used // 1024**3} / {disk.total // 1024**3} GB  "
-            f"({disk.percent:.0f}%)"
+
+        top_cpu = _top_procs("cpu_percent")
+        top_mem = _top_procs("memory_percent")
+
+        lines = [
+            f"CPU:  {cpu:.0f}%",
+        ]
+        if top_cpu:
+            lines.append(top_cpu)
+        lines += [
+            f"RAM:  {mem.used // 1024**2} / {mem.total // 1024**2} MB  ({mem.percent:.0f}%)",
+        ]
+        if top_mem:
+            lines.append(top_mem)
+        lines.append(
+            f"Disk: {disk.used // 1024**3} / {disk.total // 1024**3} GB  ({disk.percent:.0f}%)"
         )
+        return "\n".join(lines)
     except Exception:
         return "Системная статистика недоступна"
 
