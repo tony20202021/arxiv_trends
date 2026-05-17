@@ -16,6 +16,7 @@ import datetime as dt
 import json
 import logging
 import os
+import subprocess
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -41,18 +42,34 @@ logger = logging.getLogger(__name__)
 
 OUTPUTS_DIR = Path(os.environ.get("OUTPUTS_DIR", ".outputs"))
 
-# Загружаем названия доменов из domains.json: slug → title
-def _load_domain_titles() -> dict[str, str]:
+# Загружаем названия доменов из domains.json: slug → title, slug → raw_name
+def _load_domain_titles() -> tuple[dict[str, str], dict[str, str]]:
     try:
         from slugify import slugify
         import json as _json
         cfg = Path(__file__).parent.parent.parent / "config" / "domains.json"
         domains = _json.loads(cfg.read_text(encoding="utf-8"))
-        return {slugify(d["domain"]): d["title"] for d in domains}
+        titles = {slugify(d["domain"]): d["title"] for d in domains}
+        raw    = {slugify(d["domain"]): d["domain"] for d in domains}
+        return titles, raw
     except Exception:
-        return {}
+        return {}, {}
 
-_DOMAIN_TITLES = _load_domain_titles()
+_DOMAIN_TITLES, _DOMAIN_RAW = _load_domain_titles()
+
+
+def _domain_week_count(domain_slug: str) -> int:
+    """Число недель в MongoDB для домена."""
+    try:
+        import pymongo
+        raw = _DOMAIN_RAW.get(domain_slug, domain_slug)
+        mongo_uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
+        mongo_db  = os.environ.get("MONGO_DB", "arxiv_trends")
+        client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
+        col = client[mongo_db]["weekly_keyword_counts"]
+        return len(col.distinct("week_start", {"domain": raw}))
+    except Exception:
+        return 0
 
 
 def _get_external_ips() -> list[str]:
@@ -199,6 +216,97 @@ def _plots_for_domain(domain_id: str) -> dict[str, Path | None]:
     }
 
 
+_SERVICES = [
+    ("arxiv-backend-1", "Backend 1: fetch"),
+    ("arxiv-backend-2", "Backend 2: extract"),
+    ("arxiv-backend-3", "Backend 3: plots"),
+    ("arxiv-frontend",  "Telegram bot"),
+    ("arxiv-web",       "Web dashboard"),
+    ("arxiv-tunnel",    "CF Tunnel"),
+    ("mongod",          "MongoDB"),
+    ("danted",          "SOCKS5 proxy"),
+]
+
+
+def _service_status(name: str) -> tuple[str, str]:
+    """Возвращает (active_state, last_log_line)."""
+    try:
+        active = subprocess.check_output(
+            ["systemctl", "is-active", name], text=True
+        ).strip()
+    except subprocess.CalledProcessError as e:
+        active = (e.output or "unknown").strip()
+    try:
+        log = subprocess.check_output(
+            ["journalctl", "-u", name, "-n", "1", "--no-pager", "-o", "short"],
+            text=True, stderr=subprocess.DEVNULL,
+        ).strip().splitlines()
+        last = log[-1] if log else ""
+        # убрать длинный prefix journalctl (дата хост юнит pid)
+        if ": " in last:
+            last = last.split(": ", 1)[1][:80]
+        else:
+            last = last[:80]
+    except Exception:
+        last = ""
+    return active, last
+
+
+def _sys_stats() -> str:
+    try:
+        import psutil
+        cpu = psutil.cpu_percent(interval=0.5)
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage("/")
+        return (
+            f"CPU:  {cpu:.0f}%\n"
+            f"RAM:  {mem.used // 1024**2} / {mem.total // 1024**2} MB  "
+            f"({mem.percent:.0f}%)\n"
+            f"Disk: {disk.used // 1024**3} / {disk.total // 1024**3} GB  "
+            f"({disk.percent:.0f}%)"
+        )
+    except Exception:
+        return "Системная статистика недоступна"
+
+
+def _last_plot_age() -> str:
+    """Возвращает строку с временем последнего обновления любого графика."""
+    try:
+        pngs = list(OUTPUTS_DIR.glob("plots/*/*.png"))
+        if not pngs:
+            return "нет графиков"
+        newest = max(pngs, key=lambda p: p.stat().st_mtime)
+        age = dt.datetime.now(dt.timezone.utc) - dt.datetime.fromtimestamp(
+            newest.stat().st_mtime, tz=dt.timezone.utc
+        )
+        minutes = int(age.total_seconds() // 60)
+        if minutes < 60:
+            return f"{minutes} мин назад"
+        return f"{minutes // 60} ч {minutes % 60} мин назад"
+    except Exception:
+        return "?"
+
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lines = ["Статус сервера\n"]
+
+    lines.append(_sys_stats())
+    lines.append(f"Последний график: {_last_plot_age()}")
+    lines.append("")
+    lines.append("Службы:")
+
+    icon = {"active": "✅", "inactive": "⛔", "failed": "❌"}
+    for svc, label in _SERVICES:
+        state, last_log = _service_status(svc)
+        mark = icon.get(state, "❓")
+        line = f"{mark} {label}: {state}"
+        if last_log:
+            line += f"\n    └ {last_log}"
+        lines.append(line)
+
+    await update.message.reply_text("\n".join(lines))
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "arXiv Trends Bot\n\n"
@@ -206,7 +314,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Команды:\n"
         "  /domains — список доменов с готовыми графиками\n"
         "  /trends <domain_id> — графики для домена\n"
-        "  /web — ссылка на веб-дашборд\n\n"
+        "  /web — ссылка на веб-дашборд\n"
+        "  /status — состояние сервера и служб\n\n"
         "Пример: /trends cs-lg"
     )
     await update.message.reply_text(text)
@@ -231,10 +340,11 @@ async def cmd_domains(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     domain_ids = [p.parent.name for p in plot_dirs]
-    keyboard = [
-        [InlineKeyboardButton(d, callback_data=f"trends:{d}")]
-        for d in domain_ids
-    ]
+    keyboard = []
+    for d in domain_ids:
+        weeks = _domain_week_count(d)
+        label = f"{d}  ({weeks} нед.)" if weeks else d
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"trends:{d}")])
     await update.message.reply_text(
         "Доступные домены:",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -341,6 +451,7 @@ async def _set_commands(app) -> None:
         BotCommand("start", "Приветствие"),
         BotCommand("domains", "Список доменов с графиками"),
         BotCommand("web", "Ссылка на веб-дашборд"),
+        BotCommand("status", "Состояние сервера и служб"),
     ])
 
 
@@ -353,6 +464,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("domains", cmd_domains))
     app.add_handler(CommandHandler("web", cmd_web))
+    app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("trends", cmd_trends))
     app.add_handler(CallbackQueryHandler(callback_trends, pattern=r"^trends:"))
     app.add_handler(MessageHandler(filters.COMMAND, cmd_unknown))
