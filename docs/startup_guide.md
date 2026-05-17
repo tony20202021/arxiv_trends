@@ -8,9 +8,16 @@ curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | sudo gpg -o /usr/
 echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
 sudo apt-get update && sudo apt-get install -y mongodb-org
 
-# Настроить порт в /etc/mongod.conf (net.port: 27027) и запустить:
+# Настроить порт и лимит памяти в /etc/mongod.conf:
+# net.port: 27027
+# storage.wiredTiger.engineConfig.cacheSizeGB: 0.25  (важно на VPS с ≤2 GB RAM)
 sudo systemctl enable mongod
 sudo systemctl start mongod
+
+# На VPS с ≤2 GB RAM — добавить swap и снизить swappiness:
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf && sudo sysctl vm.swappiness=10
 
 # 1. Установить Miniconda (если не установлена)
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh

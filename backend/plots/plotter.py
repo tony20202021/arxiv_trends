@@ -87,14 +87,13 @@ def plot_keywords_over_time(
         )
 
         if regression_window and len(pivot.index) >= 2:
-            w = pivot.iloc[-regression_window:] if len(pivot.index) > regression_window else pivot
-            x = np.arange(len(w.index), dtype=np.float32)
-            y = w[kw].values.astype(np.float32)
-            if y.sum() > 0:
+            x = np.arange(len(pivot.index), dtype=np.float32)
+            y = pivot[kw].values.astype(np.float32) if kw in pivot.columns else None
+            if y is not None and y.sum() > 0:
                 slope, intercept = np.polyfit(x, y, 1)
                 y_reg = slope * x + intercept
                 plt.plot(
-                    w.index, y_reg,
+                    pivot.index, y_reg,
                     color=color,
                     linewidth=2.5,
                     alpha=0.7,

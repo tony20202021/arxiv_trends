@@ -143,8 +143,8 @@ def render_plots(
         popular_pcts      = _last_row(pivot_pct, popular)
         growing_counts    = _last_row(pivot, growing)
         growing_pcts      = _last_row(pivot_pct, growing)
-        growing_growth     = growing_slopes(pivot, growing, GROWTH_WINDOW_WEEKS)
-        growing_growth_pct = growing_slopes(pivot_pct, growing, GROWTH_WINDOW_WEEKS)
+        growing_growth     = growing_slopes(pivot, growing)
+        growing_growth_pct = growing_slopes(pivot_pct, growing)
 
         def _title(short: str) -> str:
             return f"{dname}\n{short}\n\n[экстрактор: {ext_label}]"
@@ -229,8 +229,8 @@ def render_plots(
             all_popular_pcts      = _last_row(all_pivot_pct, all_popular)
             all_growing_counts    = _last_row(all_pivot, all_growing)
             all_growing_pcts      = _last_row(all_pivot_pct, all_growing)
-            all_growing_growth     = growing_slopes(all_pivot, all_growing, GROWTH_WINDOW_WEEKS)
-            all_growing_growth_pct = growing_slopes(all_pivot_pct, all_growing, GROWTH_WINDOW_WEEKS)
+            all_growing_growth     = growing_slopes(all_pivot, all_growing)
+            all_growing_growth_pct = growing_slopes(all_pivot_pct, all_growing)
 
             def _atitle(short: str) -> str:
                 return f"_all\n{short}\n\n[экстрактор: {all_ext_label}]"
