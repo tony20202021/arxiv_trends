@@ -225,7 +225,6 @@ _SERVICES = [
     ("arxiv-web",       "Web dashboard"),
     ("arxiv-tunnel",    "CF Tunnel"),
     ("mongod",          "MongoDB"),
-    ("danted",          "SOCKS5 proxy"),
 ]
 
 
