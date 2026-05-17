@@ -78,25 +78,34 @@ sudo systemctl disable arxiv-db arxiv-backend-1 arxiv-backend-2 arxiv-backend-3 
 
 ## Просмотр логов
 
+> Добавьте пользователя в группу `systemd-journal`, чтобы читать логи без `sudo`:
+> ```bash
+> sudo usermod -aG systemd-journal $USER
+> # выйти и войти заново (или перезапустить сервис через systemctl)
+> ```
+
 ```bash
-# Последние 50 строк
-sudo journalctl -u arxiv-backend-1 -n 50 --no-pager
-sudo journalctl -u arxiv-backend-2 -n 50 --no-pager
-sudo journalctl -u arxiv-backend-3 -n 50 --no-pager
-sudo journalctl -u arxiv-frontend -n 50 --no-pager
+# Последние 50 строк (без sudo, если в группе systemd-journal)
+journalctl -u arxiv-backend-1 -n 50 --no-pager
+journalctl -u arxiv-backend-2 -n 50 --no-pager
+journalctl -u arxiv-backend-3 -n 50 --no-pager
+journalctl -u arxiv-frontend -n 50 --no-pager
 
 # Следить в реальном времени
-sudo journalctl -u arxiv-frontend -f
+journalctl -u arxiv-frontend -f
 
 # Логи за последний час
-sudo journalctl -u arxiv-backend-2 --since "1 hour ago"
+journalctl -u arxiv-backend-2 --since "1 hour ago"
 
 # Все бэкенд-сервисы вместе
-sudo journalctl -u arxiv-db -u arxiv-backend-1 -u arxiv-backend-2 -u arxiv-backend-3 -f
+journalctl -u arxiv-db -u arxiv-backend-1 -u arxiv-backend-2 -u arxiv-backend-3 -f
 
 # Веб и туннель
-sudo journalctl -u arxiv-web -n 50 --no-pager
-sudo journalctl -u arxiv-tunnel -n 50 --no-pager
+journalctl -u arxiv-web -n 50 --no-pager
+journalctl -u arxiv-tunnel -n 50 --no-pager
+
+# MongoDB (пишет в syslog)
+journalctl -u mongod -n 50 --no-pager
 ```
 
 ---
@@ -120,11 +129,14 @@ bash sh/start_2_fetch.sh --run-once --log-level DEBUG
 
 **При системной установке через apt (рекомендуется):**
 ```bash
-# Статус и логи
+# Статус и логи (MongoDB пишет в syslog → journalctl)
 sudo systemctl status mongod
 sudo journalctl -u mongod -n 50 --no-pager
 
-# Проверить конфиг (порт должен быть 27027)
+# Без sudo — если пользователь в группе systemd-journal:
+journalctl -u mongod -n 50 --no-pager
+
+# Проверить конфиг (порт 27027, syslog, cacheSizeGB 0.25)
 cat /etc/mongod.conf
 
 # Перезапустить

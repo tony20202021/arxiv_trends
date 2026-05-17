@@ -244,31 +244,38 @@ def _service_status(name: str) -> tuple[str, str]:
 
     try:
         raw = subprocess.check_output(
-            ["journalctl", "-u", name, "-n", "1", "--no-pager", "-o", "short"],
+            ["journalctl", "-u", name, "-n", "10", "--no-pager", "-o", "short"],
             text=True, stderr=subprocess.DEVNULL,
         ).strip()
-        lines = raw.splitlines()
-        if not lines:
+        all_lines = [l for l in raw.splitlines() if l.strip()]
+        if not all_lines:
             return active, ""
 
-        # Первая строка содержит timestamp: "May 17 12:13:14 host unit[pid]: msg"
-        first_line = lines[0]
-        # Извлечь время (3-е поле — HH:MM:SS)
-        parts = first_line.split()
-        time_str = parts[2] if len(parts) >= 3 else ""
+        # Timestamp из последней записи (даже если blob)
+        # Формат строки: "May 17 00:51:16 host unit[pid]: msg"
+        ts_parts = all_lines[-1].split()
+        time_str = " ".join(ts_parts[:3]) if len(ts_parts) >= 3 else ""
 
-        # Текст сообщения — после "]: " или ": "
+        # Текст сообщения — из последней НЕ-blob записи
+        _ts_re = __import__("re").compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}[\d.,]*\s*")
+
         def _msg(line: str) -> str:
-            return line.split(": ", 1)[1].strip() if ": " in line else line.strip()
+            text = line.split(": ", 1)[1].strip() if ": " in line else line.strip()
+            return _ts_re.sub("", text).strip()
 
-        first_msg = _msg(first_line)[:20]
-        last_msg  = _msg(lines[-1])[:20] if len(lines) > 1 else ""
+        text_lines = [l for l in all_lines if "blob data" not in l]
+        full_text  = _msg(text_lines[-1]) if text_lines else ""
+        first_msg  = full_text[:20]
+        last_msg   = full_text[-20:] if len(full_text) > 20 and full_text[-20:] != full_text[:20] else ""
 
-        summary = time_str
+        parts = [time_str]
         if first_msg:
-            summary += f" | {first_msg}"
-        if last_msg and last_msg != first_msg:
-            summary += f" | {last_msg}"
+            parts.append(f"       └ {first_msg}")
+        if first_msg and last_msg:
+            parts.append(f"       └ ...")
+        if last_msg:
+            parts.append(f"       └ {last_msg}")
+        summary = "\n".join(parts)
     except Exception:
         summary = ""
 
@@ -382,19 +389,15 @@ def _sys_stats() -> str:
         top_cpu = "\n".join(f"  {l}: {v}" for l, v in top_cpu_data)
         top_mem = "\n".join(f"  {l}: {v}" for l, v in top_mem_data)
 
-        lines = [
-            f"CPU:  {cpu:.0f}%",
-        ]
+        lines = [f"CPU:  {cpu:.0f}%"]
         if top_cpu:
             lines.append(top_cpu)
-        lines += [
-            f"RAM:  {mem.used // 1024**2} / {mem.total // 1024**2} MB  ({mem.percent:.0f}%)",
-        ]
+        lines.append("")
+        lines.append(f"RAM:  {mem.used // 1024**2} / {mem.total // 1024**2} MB  ({mem.percent:.0f}%)")
         if top_mem:
             lines.append(top_mem)
-        lines.append(
-            f"Disk: {disk.used // 1024**3} / {disk.total // 1024**3} GB  ({disk.percent:.0f}%)"
-        )
+        lines.append("")
+        lines.append(f"Disk: {disk.used // 1024**3} / {disk.total // 1024**3} GB  ({disk.percent:.0f}%)")
         return "\n".join(lines)
     except Exception:
         return "Системная статистика недоступна"
@@ -421,6 +424,7 @@ def _last_plot_age() -> str:
 def _build_status_text() -> str:
     lines = ["Статус сервера\n"]
     lines.append(_sys_stats())
+    lines.append("")
     lines.append(f"Последний график: {_last_plot_age()}")
     lines.append("")
     lines.append("Службы:")

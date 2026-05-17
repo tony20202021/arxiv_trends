@@ -8,11 +8,15 @@ curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | sudo gpg -o /usr/
 echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
 sudo apt-get update && sudo apt-get install -y mongodb-org
 
-# Настроить порт и лимит памяти в /etc/mongod.conf:
+# Настроить /etc/mongod.conf:
+# systemLog.destination: syslog          (логи через journald, без отдельного файла)
 # net.port: 27027
 # storage.wiredTiger.engineConfig.cacheSizeGB: 0.25  (важно на VPS с ≤2 GB RAM)
 sudo systemctl enable mongod
 sudo systemctl start mongod
+
+# Разрешить чтение journalctl без sudo (для бота и диагностики):
+sudo usermod -aG systemd-journal $USER
 
 # На VPS с ≤2 GB RAM — добавить swap и снизить swappiness:
 sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
