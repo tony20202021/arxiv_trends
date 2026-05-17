@@ -339,3 +339,25 @@ class MongoStore:
         result = self.col.delete_many({"domain": domain})
         logger.info("Deleted %d documents for domain '%s'", result.deleted_count, domain)
         return result.deleted_count
+
+    # ------------------------------------------------------------------ domain_meta
+
+    def get_article_versions(self, domain: str) -> list[int]:
+        """Distinct keyword_extractor_version из articles для домена."""
+        raw = self.articles.distinct("keyword_extractor_version", {"domain": domain})
+        return sorted(v for v in raw if v is not None)
+
+    def upsert_domain_meta(self, domain: str, keyword_versions: list[int]) -> None:
+        """Обновить метаданные домена (версии экстрактора)."""
+        self.db["domain_meta"].update_one(
+            {"domain": domain},
+            {"$set": {
+                "keyword_versions": keyword_versions,
+                "updated_at": dt.datetime.now(dt.timezone.utc),
+            }},
+            upsert=True,
+        )
+
+    def get_all_domain_meta(self) -> list[dict]:
+        """Все записи domain_meta, отсортированные по домену."""
+        return list(self.db["domain_meta"].find({}, {"_id": 0}).sort("domain", ASCENDING))

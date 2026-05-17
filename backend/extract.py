@@ -103,4 +103,8 @@ def extract_keywords_batch(
         logger.info("  Готово: обработано=%d, пропущено=%d", processed, skipped)
         stats[dname] = {"processed": processed, "skipped": skipped}
 
+        versions = store.get_article_versions(dname)
+        store.upsert_domain_meta(dname, versions)
+        logger.info("  domain_meta: %s → версии %s", dname, versions)
+
     return stats

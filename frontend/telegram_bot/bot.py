@@ -58,27 +58,44 @@ def _load_domain_titles() -> tuple[dict[str, str], dict[str, str]]:
 _DOMAIN_TITLES, _DOMAIN_RAW = _load_domain_titles()
 
 
-def _domain_week_count(domain_slug: str) -> tuple[int, int]:
-    """(всего недель в БД, полных недель на графике)."""
+def _load_domains_info(domain_slugs: list[str]) -> dict[str, dict]:
+    """Один коннект к MongoDB: недели + версии для всех доменов.
+
+    Returns:
+        {slug: {"total": int, "complete": int, "versions": list[int], "updated_at": datetime|None}}
+    """
+    empty = {s: {"total": 0, "complete": 0, "versions": [], "updated_at": None} for s in domain_slugs}
     try:
         import pymongo
         mongo_uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
         mongo_db  = os.environ.get("MONGO_DB", "arxiv_trends")
         client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
-        col = client[mongo_db]["weekly_keyword_counts"]
-        today = dt.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        col      = client[mongo_db]["weekly_keyword_counts"]
+        meta_col = client[mongo_db]["domain_meta"]
+
+        today   = dt.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         _before = today - dt.timedelta(days=today.weekday() + 7)
-        if domain_slug == "_all":
-            weeks = col.distinct("week_start")
-        else:
-            raw = _DOMAIN_RAW.get(domain_slug, domain_slug)
-            weeks = col.distinct("week_start", {"domain": raw})
-        weeks = [w.replace(tzinfo=None) if getattr(w, "tzinfo", None) else w for w in weeks]
-        total    = len(weeks)
-        complete = len([w for w in weeks if w <= _before])
-        return total, complete
+
+        meta_by_raw = {m["domain"]: m for m in meta_col.find({}, {"_id": 0})}
+
+        result = {}
+        for slug in domain_slugs:
+            raw = _DOMAIN_RAW.get(slug, slug)
+            weeks = col.distinct("week_start") if slug == "_all" else col.distinct("week_start", {"domain": raw})
+            weeks = [w.replace(tzinfo=None) if getattr(w, "tzinfo", None) else w for w in weeks]
+            total    = len(weeks)
+            complete = len([w for w in weeks if w <= _before])
+            if slug == "_all":
+                versions   = sorted({v for m in meta_by_raw.values() for v in m.get("keyword_versions", [])})
+                updated_at = None
+            else:
+                meta       = meta_by_raw.get(raw, {})
+                versions   = meta.get("keyword_versions", [])
+                updated_at = meta.get("updated_at")
+            result[slug] = {"total": total, "complete": complete, "versions": versions, "updated_at": updated_at}
+        return result
     except Exception:
-        return 0, 0
+        return empty
 
 
 def _get_external_ips() -> list[str]:
@@ -400,12 +417,12 @@ def _sys_stats() -> str:
         # CPU: сначала запускаем замер процессов (включает sleep 1s),
         # потом берём системный % за тот же период
         psutil.cpu_percent()          # инициализация системного счётчика
-        top_cpu_data = _collect_procs_cpu()   # внутри sleep(1s)
+        top_cpu_data = _collect_procs_cpu(top_n=5)   # внутри sleep(1s)
         cpu = psutil.cpu_percent()    # % за последнюю секунду
 
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
-        top_mem_data = _collect_procs_mem()
+        top_mem_data = _collect_procs_mem(top_n=5)
 
         top_cpu = "\n".join(f"  {l}: {v}" for l, v in top_cpu_data)
         top_mem = "\n".join(f"  {l}: {v}" for l, v in top_mem_data)
@@ -474,6 +491,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Команды:\n"
         "  /domains — список доменов с готовыми графиками\n"
         "  /trends <domain_id> — графики для домена\n"
+        "  /meta — версии экстрактора и недели по доменам\n"
         "  /web — ссылка на веб-дашборд\n"
         "  /status — состояние сервера и служб\n\n"
         "Пример: /trends cs-lg"
@@ -500,10 +518,17 @@ async def cmd_domains(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     domain_ids = [p.parent.name for p in plot_dirs]
+    info = _load_domains_info(domain_ids)
     keyboard = []
     for d in domain_ids:
-        total, complete = _domain_week_count(d)
-        label = f"{d}:  {total} (в бд) / {complete} (полных) недель" if total else d
+        d_info   = info.get(d, {})
+        total    = d_info.get("total", 0)
+        complete = d_info.get("complete", 0)
+        versions = d_info.get("versions", [])
+        v_str    = ("v" + ",".join(str(v) for v in versions)) if versions else ""
+        week_str = f"{total} (в бд) / {complete} (полных) недель" if total else ""
+        parts    = [p for p in [v_str, week_str] if p]
+        label    = f"{d}:  {' | '.join(parts)}" if parts else d
         keyboard.append([InlineKeyboardButton(label, callback_data=f"trends:{d}")])
     await update.message.reply_text(
         "Доступные домены:",
@@ -609,6 +634,32 @@ async def callback_trends(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await _send_trends(domain_id, update)
 
 
+async def cmd_meta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Метаданные доменов: версии экстрактора и количество недель."""
+    plot_dirs = sorted(OUTPUTS_DIR.glob("plots/*/top_popular.png"))
+    domain_ids = [p.parent.name for p in plot_dirs]
+    if not domain_ids:
+        await update.message.reply_text("Нет готовых данных.")
+        return
+
+    info = _load_domains_info(domain_ids)
+
+    lines = ["📊 Метаданные доменов:\n"]
+    for d in domain_ids:
+        d_info     = info.get(d, {})
+        total      = d_info.get("total", 0)
+        complete   = d_info.get("complete", 0)
+        versions   = d_info.get("versions", [])
+        updated_at = d_info.get("updated_at")
+        v_str      = ("v" + ", v".join(str(v) for v in versions)) if versions else "—"
+        week_str   = f"{total} в бд / {complete} полных" if total else "нет данных"
+        upd_str    = updated_at.strftime("%d.%m %H:%M") if updated_at else ""
+        upd_part   = f"  [{upd_str}]" if upd_str else ""
+        lines.append(f"{d}:  {v_str}  |  {week_str} нед.{upd_part}")
+
+    await update.message.reply_text("\n".join(lines))
+
+
 async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Неизвестная команда. /start — список команд.")
 
@@ -630,6 +681,7 @@ def main() -> None:
     app = Application.builder().token(token).post_init(_set_commands).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("domains", cmd_domains))
+    app.add_handler(CommandHandler("meta", cmd_meta))
     app.add_handler(CommandHandler("web", cmd_web))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("trends", cmd_trends))

@@ -9,7 +9,7 @@ import logging
 from typing import List
 
 from config.constants import TOP_N, GROWTH_WINDOW_WEEKS
-from keywords.registry import ACTIVE_EXTRACTOR_KEY
+from keywords.registry import ACTIVE_EXTRACTOR_KEY, ACTIVE_EXTRACTOR
 from storage.mongo import MongoStore
 from analytics.trends import to_frame, pivot_week_keyword, top_popular_now, top_growing_last_window
 from utils import last_complete_week_start
@@ -59,6 +59,7 @@ def recompute_aggregates(
                     "Домен '%s': агрегаты актуальны (computed_at=%s >= updated_at=%s), пропускаем",
                     dname, computed_at.date(), latest_update.date(),
                 )
+                store.upsert_domain_meta(dname, [ACTIVE_EXTRACTOR.db_id])
                 results[dname] = {
                     "weeks": 0,
                     "popular": agg.get("top_popular", [])[:5],
@@ -93,6 +94,7 @@ def recompute_aggregates(
             top_growing=growing,
             extractor_key=ACTIVE_EXTRACTOR_KEY,
         )
+        store.upsert_domain_meta(dname, [ACTIVE_EXTRACTOR.db_id])
         logger.info("Домен '%s': агрегаты обновлены  популярные=%s", dname, popular[:3])
 
         results[dname] = {
