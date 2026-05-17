@@ -13,7 +13,7 @@ class MongoStore:
         self.client = MongoClient(
             mongo_uri,
             serverSelectionTimeoutMS=5_000,
-            socketTimeoutMS=30_000,
+            socketTimeoutMS=300_000,   # 5 мин: агрегация _all (625K строк) занимает ~2.5 мин
             connectTimeoutMS=5_000,
         )
         self.db = self.client[db_name]
