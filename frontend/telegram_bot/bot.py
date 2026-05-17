@@ -252,6 +252,39 @@ def _service_status(name: str) -> tuple[str, str]:
     return active, last
 
 
+def _proc_label(p_info: dict) -> str:
+    """Краткое читаемое имя процесса из cmdline."""
+    try:
+        import psutil
+        cmdline = psutil.Process(p_info["pid"]).cmdline()
+    except Exception:
+        return (p_info.get("name") or "?")[:30]
+
+    if not cmdline:
+        return (p_info.get("name") or "?")[:30]
+
+    # python -m watchfiles ... → "watchfiles:<target>"
+    if len(cmdline) >= 3 and cmdline[1] == "-m" and cmdline[2] == "watchfiles":
+        target = next((a for a in cmdline[3:] if not a.startswith("-")), "")
+        short = target.split()[-1] if target else "watchfiles"
+        return f"watchfiles:{short}"
+
+    # python scripts/foo.py → "foo.py"
+    if len(cmdline) >= 2 and cmdline[1].endswith(".py"):
+        return cmdline[1].rsplit("/", 1)[-1]
+
+    # python -m module → "module"
+    if len(cmdline) >= 3 and cmdline[1] == "-m":
+        return cmdline[2]
+
+    # python frontend/telegram_bot/bot.py → "bot.py"
+    for arg in cmdline[1:]:
+        if arg.endswith(".py"):
+            return arg.rsplit("/", 1)[-1]
+
+    return (p_info.get("name") or cmdline[0].rsplit("/", 1)[-1])[:30]
+
+
 def _top_procs(key: str, top_n: int = 3) -> str:
     """Топ-N процессов по cpu_percent или memory_percent."""
     try:
@@ -263,20 +296,18 @@ def _top_procs(key: str, top_n: int = 3) -> str:
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
         procs.sort(key=lambda x: x.get(key) or 0, reverse=True)
-        unit = "%" if key == "cpu_percent" else "MB"
         lines = []
         for p in procs[:top_n]:
             val = p.get(key) or 0
-            name = (p.get("name") or "?")[:20]
+            label = _proc_label(p)
             if key == "memory_percent":
-                import psutil as _ps
                 try:
-                    mem_mb = _ps.Process(p["pid"]).memory_info().rss // 1024 ** 2
-                    lines.append(f"  {name}: {mem_mb} MB")
+                    mem_mb = psutil.Process(p["pid"]).memory_info().rss // 1024 ** 2
+                    lines.append(f"  {label}: {mem_mb} MB")
                 except Exception:
-                    lines.append(f"  {name}: {val:.1f}%")
+                    lines.append(f"  {label}: {val:.1f}%")
             else:
-                lines.append(f"  {name}: {val:.1f}%")
+                lines.append(f"  {label}: {val:.1f}%")
         return "\n".join(lines)
     except Exception:
         return ""
