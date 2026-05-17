@@ -58,8 +58,8 @@ def _load_domain_titles() -> tuple[dict[str, str], dict[str, str]]:
 _DOMAIN_TITLES, _DOMAIN_RAW = _load_domain_titles()
 
 
-def _domain_week_count(domain_slug: str) -> int:
-    """Число недель в MongoDB для домена — тот же диапазон что на графике."""
+def _domain_week_count(domain_slug: str) -> tuple[int, int]:
+    """(всего недель в БД, полных недель на графике)."""
     try:
         import pymongo
         mongo_uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
@@ -67,18 +67,18 @@ def _domain_week_count(domain_slug: str) -> int:
         client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
         col = client[mongo_db]["weekly_keyword_counts"]
         today = dt.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        _before = today - dt.timedelta(days=today.weekday() + 7)  # последний завершённый понедельник
-        _since  = today - dt.timedelta(weeks=52)
+        _before = today - dt.timedelta(days=today.weekday() + 7)
         if domain_slug == "_all":
             weeks = col.distinct("week_start")
         else:
             raw = _DOMAIN_RAW.get(domain_slug, domain_slug)
             weeks = col.distinct("week_start", {"domain": raw})
         weeks = [w.replace(tzinfo=None) if getattr(w, "tzinfo", None) else w for w in weeks]
-        weeks = [w for w in weeks if _since <= w <= _before]
-        return len(weeks)
+        total    = len(weeks)
+        complete = len([w for w in weeks if w <= _before])
+        return total, complete
     except Exception:
-        return 0
+        return 0, 0
 
 
 def _get_external_ips() -> list[str]:
@@ -175,6 +175,10 @@ def _fmt_slope(slope: float, unit: str = "/нед") -> str:
     return f"{slope:+.3f}{unit}"
 
 
+def _slope_arrow(slope: float) -> str:
+    return "🟢▲" if slope >= 0 else "🔴▼"
+
+
 def _format_keywords_message(label: str, data: dict, is_growing: bool = False,
                              slope_unit: str = "/нед") -> str:
     keywords = data.get("keywords", [])
@@ -200,20 +204,22 @@ def _format_keywords_message(label: str, data: dict, is_growing: bool = False,
         slope_full  = growth.get(kw)       if is_growing else None
         slope_short = growth_short.get(kw) if is_growing else None
 
-        parts = []
+        sub = [f"{prefix}{i}. {kw}"]
+        count_pct = []
         if count is not None:
-            parts.append(f"{int(count):,}")
+            count_pct.append(f"{int(count):,}")
         if pct is not None:
-            parts.append(f"{pct:.1f}%")
+            count_pct.append(f"{pct:.1f}%")
+        if count_pct:
+            sub.append(f"   {', '.join(count_pct)}")
         if slope_full is not None and slope_short is not None:
             w_full  = f"({total_weeks})" if total_weeks else ""
             w_short = f"({win_weeks})"   if win_weeks  else ""
-            parts.append(f"↑{_fmt_slope(slope_full, slope_unit)}{w_full}, {_fmt_slope(slope_short, slope_unit)}{w_short}")
+            sub.append(f"   {_slope_arrow(slope_full)}{_fmt_slope(slope_full, slope_unit)}{w_full}")
+            sub.append(f"   {_slope_arrow(slope_short)}{_fmt_slope(slope_short, slope_unit)}{w_short}")
         elif slope_full is not None:
-            parts.append(f"↑{_fmt_slope(slope_full, slope_unit)}")
-
-        suffix = f"  ({', '.join(parts)})" if parts else ""
-        lines.append(f"{prefix}{i}. {kw}{suffix}")
+            sub.append(f"   {_slope_arrow(slope_full)}{_fmt_slope(slope_full, slope_unit)}")
+        lines.append("\n".join(sub))
 
     return "\n".join(lines)
 
@@ -496,8 +502,8 @@ async def cmd_domains(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     domain_ids = [p.parent.name for p in plot_dirs]
     keyboard = []
     for d in domain_ids:
-        weeks = _domain_week_count(d)
-        label = f"{d}  ({weeks} нед.)" if weeks else d
+        total, complete = _domain_week_count(d)
+        label = f"{d}:  {total} (в бд) / {complete} (полных) недель" if total else d
         keyboard.append([InlineKeyboardButton(label, callback_data=f"trends:{d}")])
     await update.message.reply_text(
         "Доступные домены:",

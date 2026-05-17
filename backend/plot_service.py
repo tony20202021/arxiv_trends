@@ -111,6 +111,7 @@ def render_plots(
 
         popular = agg.get("top_popular", [])
         growing = agg.get("top_growing", [])
+        # growing_pct вычисляется ниже после pivot_pct
 
         week_datetimes = sorted(store.col.distinct("week_start", {"domain": dname}))
         week_datetimes = [w.replace(tzinfo=None) if w.tzinfo is not None else w for w in week_datetimes]
@@ -132,13 +133,15 @@ def render_plots(
             art_counts = {k: v for k, v in art_counts.items() if k >= _since}
         art_counts = {k: v for k, v in art_counts.items() if k <= _before}
         pivot_pct = pivot_week_keyword_pct(pivot, art_counts)
+        # Список растущих по %-доле считаем здесь, где pivot_pct уже готов
+        growing_pct = top_growing_last_window(pivot_pct, GROWTH_WINDOW_WEEKS, TOP_N)
 
         slug = slugify(dname)
         base = Path(out_dir) / "plots" / slug
         base.mkdir(parents=True, exist_ok=True)
 
         ext_label = agg.get("extractor_key") or ACTIVE_EXTRACTOR_KEY
-        styles = build_keyword_styles(list(dict.fromkeys(popular + growing)))
+        styles = build_keyword_styles(list(dict.fromkeys(popular + growing + growing_pct)))
 
         # Значения последней недели для JSON-сайдкаров
         popular_counts    = _last_row(pivot, popular)
@@ -147,8 +150,10 @@ def render_plots(
         growing_pcts      = _last_row(pivot_pct, growing)
         growing_growth       = growing_slopes(pivot,     growing)
         growing_growth_short = growing_slopes(pivot,     growing, window_weeks=GROWTH_WINDOW_WEEKS)
-        growing_growth_pct       = growing_slopes(pivot_pct, growing)
-        growing_growth_pct_short = growing_slopes(pivot_pct, growing, window_weeks=GROWTH_WINDOW_WEEKS)
+        growing_pct_counts    = _last_row(pivot, growing_pct)
+        growing_pct_pcts      = _last_row(pivot_pct, growing_pct)
+        growing_growth_pct       = growing_slopes(pivot_pct, growing_pct)
+        growing_growth_pct_short = growing_slopes(pivot_pct, growing_pct, window_weeks=GROWTH_WINDOW_WEEKS)
         total_weeks = len(pivot.index)
 
         def _title(short: str) -> str:
@@ -192,7 +197,7 @@ def render_plots(
         _save_keywords_json(base / "top_popular_pct.png", popular, ext_label,
                             counts=popular_counts, pcts=popular_pcts, styles=styles)
         plot_keywords_over_time(
-            pivot_pct, growing,
+            pivot_pct, growing_pct,
             _title(f"Top-{TOP_N} growing, % of weekly articles"),
             base / "top_growing_pct.png",
             keyword_styles=styles,
@@ -200,8 +205,8 @@ def render_plots(
             regression_window_short=GROWTH_WINDOW_WEEKS,
             ylabel="% of weekly articles",
         )
-        _save_keywords_json(base / "top_growing_pct.png", growing, ext_label,
-                            counts=growing_counts, pcts=growing_pcts,
+        _save_keywords_json(base / "top_growing_pct.png", growing_pct, ext_label,
+                            counts=growing_pct_counts, pcts=growing_pct_pcts,
                             growth=growing_growth_pct, growth_short=growing_growth_pct_short,
                             growth_window_weeks=GROWTH_WINDOW_WEEKS, total_weeks=total_weeks,
                             styles=styles)
@@ -232,9 +237,10 @@ def render_plots(
                 all_art_counts = {k: v for k, v in all_art_counts.items() if k >= _since}
             all_art_counts = {k: v for k, v in all_art_counts.items() if k <= _before}
             all_pivot_pct = pivot_week_keyword_pct(all_pivot, all_art_counts)
+            all_growing_pct = top_growing_last_window(all_pivot_pct, GROWTH_WINDOW_WEEKS, TOP_N)
 
             all_ext_label = agg_all.get("extractor_key") or ACTIVE_EXTRACTOR_KEY
-            styles = build_keyword_styles(list(dict.fromkeys(all_popular + all_growing)))
+            styles = build_keyword_styles(list(dict.fromkeys(all_popular + all_growing + all_growing_pct)))
 
             all_popular_counts    = _last_row(all_pivot, all_popular)
             all_popular_pcts      = _last_row(all_pivot_pct, all_popular)
@@ -242,8 +248,10 @@ def render_plots(
             all_growing_pcts      = _last_row(all_pivot_pct, all_growing)
             all_growing_growth           = growing_slopes(all_pivot,     all_growing)
             all_growing_growth_short     = growing_slopes(all_pivot,     all_growing, window_weeks=GROWTH_WINDOW_WEEKS)
-            all_growing_growth_pct       = growing_slopes(all_pivot_pct, all_growing)
-            all_growing_growth_pct_short = growing_slopes(all_pivot_pct, all_growing, window_weeks=GROWTH_WINDOW_WEEKS)
+            all_growing_pct_counts    = _last_row(all_pivot, all_growing_pct)
+            all_growing_pct_pcts      = _last_row(all_pivot_pct, all_growing_pct)
+            all_growing_growth_pct       = growing_slopes(all_pivot_pct, all_growing_pct)
+            all_growing_growth_pct_short = growing_slopes(all_pivot_pct, all_growing_pct, window_weeks=GROWTH_WINDOW_WEEKS)
             all_total_weeks = len(all_pivot.index)
 
             def _atitle(short: str) -> str:
@@ -285,7 +293,7 @@ def render_plots(
             _save_keywords_json(base_all / "top_popular_pct.png", all_popular, all_ext_label,
                                 counts=all_popular_counts, pcts=all_popular_pcts, styles=styles)
             plot_keywords_over_time(
-                all_pivot_pct, all_growing,
+                all_pivot_pct, all_growing_pct,
                 _atitle(f"Top-{TOP_N} growing, % of weekly articles"),
                 base_all / "top_growing_pct.png",
                 keyword_styles=styles,
@@ -293,8 +301,8 @@ def render_plots(
                 regression_window_short=GROWTH_WINDOW_WEEKS,
                 ylabel="% of weekly articles",
             )
-            _save_keywords_json(base_all / "top_growing_pct.png", all_growing, all_ext_label,
-                                counts=all_growing_counts, pcts=all_growing_pcts,
+            _save_keywords_json(base_all / "top_growing_pct.png", all_growing_pct, all_ext_label,
+                                counts=all_growing_pct_counts, pcts=all_growing_pct_pcts,
                                 growth=all_growing_growth_pct, growth_short=all_growing_growth_pct_short,
                                 growth_window_weeks=GROWTH_WINDOW_WEEKS, total_weeks=all_total_weeks,
                                 styles=styles)

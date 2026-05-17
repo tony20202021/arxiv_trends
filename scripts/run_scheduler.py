@@ -19,7 +19,9 @@ Circuit breaker:
 """
 from __future__ import annotations
 import argparse
+import ctypes
 import datetime as dt
+import gc
 import json
 import logging
 import os
@@ -209,6 +211,11 @@ def main():
 
     while not _shutdown:
         success = run_once(**kwargs)
+        gc.collect()
+        try:
+            ctypes.cdll.LoadLibrary("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
 
         if success:
             consecutive_failures = 0

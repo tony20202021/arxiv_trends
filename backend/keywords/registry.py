@@ -114,8 +114,37 @@ def _v4(abstract: str) -> Dict[str, int]:
     raise NotImplementedError("4_tfidf_gensim: не реализован")
 
 
-def _v5(abstract: str) -> Dict[str, int]:
-    """5_keybert: извлечение через KeyBERT (требует sentence-transformers)."""
+def _v7(abstract: str) -> Dict[str, int]:
+    """7_ensemble_136: ансамбль v1 + v3 + v6 с нормализацией по максимуму.
+
+    Каждый экстрактор нормализуется к [0, 1] по максимальному баллу в своём выводе,
+    затем берётся взвешенная сумма (веса равные). Результат масштабируется в 1–100.
+    Новый db_id = 7, несовместим с v1/v3/v6 по отдельности.
+    """
+    # TODO: реализовать
+    # weights = {"v1": 1.0, "v3": 1.0, "v6": 1.0}
+    # raw = {
+    #     "v1": _v1(abstract),
+    #     "v3": _v3(abstract),
+    #     "v6": _v6(abstract),
+    # }
+    # merged: Dict[str, float] = {}
+    # for src, result in raw.items():
+    #     if not result:
+    #         continue
+    #     max_val = max(result.values())
+    #     w = weights[src]
+    #     for kw, score in result.items():
+    #         merged[kw] = merged.get(kw, 0.0) + w * score / max_val
+    # if not merged:
+    #     return {}
+    # max_merged = max(merged.values())
+    # return {kw: max(1, int(v / max_merged * 100)) for kw, v in merged.items()}
+    raise NotImplementedError("7_ensemble_136: не реализован")
+
+
+def _v8(abstract: str) -> Dict[str, int]:
+    """8_keybert: извлечение через KeyBERT (требует sentence-transformers)."""
     # TODO: инициализировать KeyBERT один раз (глобальный объект),
     #       вернуть слова со скором как целое число (score * 100).
     # Пример:
@@ -123,7 +152,7 @@ def _v5(abstract: str) -> Dict[str, int]:
     #   kw_model = KeyBERT()
     #   keywords = kw_model.extract_keywords(abstract, top_n=20)
     #   return {kw: int(score * 100) for kw, score in keywords}
-    raise NotImplementedError("5_keybert: не реализован")
+    raise NotImplementedError("8_keybert: не реализован")
 
 
 _yake_extractor = None
@@ -181,8 +210,9 @@ EXTRACTORS: Dict[str, ExtractorSpec] = {
     "2_llm":             ExtractorSpec(2, "LLM",             _v2),
     "3_tfidf_sklearn":   ExtractorSpec(3, "TF-IDF/sklearn",  _v3),
     "4_tfidf_gensim":    ExtractorSpec(4, "TF-IDF/gensim",   _v4),
-    "5_keybert":         ExtractorSpec(5, "KeyBERT",         _v5),
     "6_yake":            ExtractorSpec(6, "YAKE",            _v6),
+    "7_ensemble_136":    ExtractorSpec(7, "ensemble(1+3+6)", _v7),
+    "8_keybert":         ExtractorSpec(8, "KeyBERT",         _v8),
 }
 
 # ------------------------------------------------------------------ активный алгоритм
