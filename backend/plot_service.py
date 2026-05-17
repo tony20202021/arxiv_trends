@@ -139,11 +139,12 @@ def render_plots(
         styles = build_keyword_styles(list(dict.fromkeys(popular + growing)))
 
         # Значения последней недели для JSON-сайдкаров
-        popular_counts = _last_row(pivot, popular)
-        popular_pcts   = _last_row(pivot_pct, popular)
-        growing_counts = _last_row(pivot, growing)
-        growing_pcts   = _last_row(pivot_pct, growing)
-        growing_growth = growing_slopes(pivot, growing, GROWTH_WINDOW_WEEKS)
+        popular_counts    = _last_row(pivot, popular)
+        popular_pcts      = _last_row(pivot_pct, popular)
+        growing_counts    = _last_row(pivot, growing)
+        growing_pcts      = _last_row(pivot_pct, growing)
+        growing_growth     = growing_slopes(pivot, growing, GROWTH_WINDOW_WEEKS)
+        growing_growth_pct = growing_slopes(pivot_pct, growing, GROWTH_WINDOW_WEEKS)
 
         def _title(short: str) -> str:
             return f"{dname}\n{short}\n\n[экстрактор: {ext_label}]"
@@ -192,7 +193,7 @@ def render_plots(
         )
         _save_keywords_json(base / "top_growing_pct.png", growing, ext_label,
                             counts=growing_counts, pcts=growing_pcts,
-                            growth=growing_growth, styles=styles)
+                            growth=growing_growth_pct, styles=styles)
 
         logger.info("  Графики сохранены → %s", base)
         results[dname] = {"plots": 5, "skipped": False}
@@ -224,11 +225,12 @@ def render_plots(
             all_ext_label = agg_all.get("extractor_key") or ACTIVE_EXTRACTOR_KEY
             styles = build_keyword_styles(list(dict.fromkeys(all_popular + all_growing)))
 
-            all_popular_counts = _last_row(all_pivot, all_popular)
-            all_popular_pcts   = _last_row(all_pivot_pct, all_popular)
-            all_growing_counts = _last_row(all_pivot, all_growing)
-            all_growing_pcts   = _last_row(all_pivot_pct, all_growing)
-            all_growing_growth = growing_slopes(all_pivot, all_growing, GROWTH_WINDOW_WEEKS)
+            all_popular_counts    = _last_row(all_pivot, all_popular)
+            all_popular_pcts      = _last_row(all_pivot_pct, all_popular)
+            all_growing_counts    = _last_row(all_pivot, all_growing)
+            all_growing_pcts      = _last_row(all_pivot_pct, all_growing)
+            all_growing_growth     = growing_slopes(all_pivot, all_growing, GROWTH_WINDOW_WEEKS)
+            all_growing_growth_pct = growing_slopes(all_pivot_pct, all_growing, GROWTH_WINDOW_WEEKS)
 
             def _atitle(short: str) -> str:
                 return f"_all\n{short}\n\n[экстрактор: {all_ext_label}]"
@@ -275,7 +277,7 @@ def render_plots(
             )
             _save_keywords_json(base_all / "top_growing_pct.png", all_growing, all_ext_label,
                                 counts=all_growing_counts, pcts=all_growing_pcts,
-                                growth=all_growing_growth, styles=styles)
+                                growth=all_growing_growth_pct, styles=styles)
             logger.info("  Суммарные графики сохранены → %s", base_all)
             results["_all"] = {"plots": 5, "skipped": False}
     else:

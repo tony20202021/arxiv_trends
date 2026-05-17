@@ -102,7 +102,7 @@ def plot_keywords_over_time(
                 )
 
     plt.title(title)
-    plt.xlabel("Week")
+    plt.xlabel(f"Week  ({len(pivot.index)} нед.)")
     plt.ylabel(ylabel)
     plt.legend(fontsize=8, ncols=2)
     fig.autofmt_xdate()
@@ -147,8 +147,9 @@ def plot_keyword_across_domains(
         plt.plot(idx, vals, label=domain, color=color, marker=marker,
                  markersize=5, linestyle="--")
 
+    n_weeks = max((len(s) for s in non_empty.values()), default=0)
     plt.title(title)
-    plt.xlabel("Week")
+    plt.xlabel(f"Week  ({n_weeks} нед.)")
     plt.ylabel("Count")
     plt.legend(fontsize=8, ncols=2)
     fig.autofmt_xdate()
@@ -182,7 +183,7 @@ def plot_article_counts(
     fig, ax = plt.subplots()
     ax.plot(weeks, counts, color=_COLORS[0], marker="o", markersize=5, linestyle="--")
     ax.set_title(title)
-    ax.set_xlabel("Week")
+    ax.set_xlabel(f"Week  ({len(weeks)} нед.)")
     ax.set_ylabel("Articles")
     fig.autofmt_xdate()
     fig.savefig(out_path, bbox_inches="tight")

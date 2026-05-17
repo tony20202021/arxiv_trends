@@ -158,15 +158,16 @@ _MARKER_CHAR: dict[str, str] = {
 }
 
 
-def _fmt_slope(slope: float) -> str:
+def _fmt_slope(slope: float, unit: str = "/нед") -> str:
     if abs(slope) >= 10:
-        return f"{slope:+.0f}/нед"
+        return f"{slope:+.0f}{unit}"
     if abs(slope) >= 1:
-        return f"{slope:+.1f}/нед"
-    return f"{slope:+.2f}/нед"
+        return f"{slope:+.1f}{unit}"
+    return f"{slope:+.3f}{unit}"
 
 
-def _format_keywords_message(label: str, data: dict, is_growing: bool = False) -> str:
+def _format_keywords_message(label: str, data: dict, is_growing: bool = False,
+                             slope_unit: str = "/нед") -> str:
     keywords = data.get("keywords", [])
     if not keywords:
         return ""
@@ -192,7 +193,7 @@ def _format_keywords_message(label: str, data: dict, is_growing: bool = False) -
         if pct is not None:
             parts.append(f"{pct:.1f}%")
         if slope is not None:
-            parts.append(f"↑{_fmt_slope(slope)}")
+            parts.append(f"↑{_fmt_slope(slope, slope_unit)}")
 
         suffix = f"  ({', '.join(parts)})" if parts else ""
         lines.append(f"{prefix}{i}. {kw}{suffix}")
@@ -405,20 +406,27 @@ async def _send_trends(domain_id: str, update: Update) -> None:
             domain_line = f"({title})" if title else ""
             await reply.reply_text(f"{domain_id} {domain_line}\n{msg}".strip())
 
-    # 3. Top-растущие: абс. → % → слова
+    # 3. Top-растущие: абс. → слова (абс.) → % → слова (%)
     if plots["growing"]:
         await reply.reply_photo(
             photo=plots["growing"].open("rb"),
             caption=f"Top-растущие — абс. ({domain_id})",
         )
+    if plots["growing"]:
+        data = _read_keywords_data(plots["growing"])
+        msg = _format_keywords_message("Top-растущие (абс.)", data, is_growing=True)
+        if msg:
+            domain_line = f"({title})" if title else ""
+            await reply.reply_text(f"{domain_id} {domain_line}\n{msg}".strip())
     if plots["growing_pct"]:
         await reply.reply_photo(
             photo=plots["growing_pct"].open("rb"),
             caption=f"Top-растущие — % от статей ({domain_id})",
         )
-    if plots["growing"]:
-        data = _read_keywords_data(plots["growing"])
-        msg = _format_keywords_message("Top-растущие", data, is_growing=True)
+    if plots["growing_pct"]:
+        data = _read_keywords_data(plots["growing_pct"])
+        msg = _format_keywords_message("Top-растущие (%/нед)", data, is_growing=True,
+                                       slope_unit="%/нед")
         if msg:
             domain_line = f"({title})" if title else ""
             await reply.reply_text(f"{domain_id} {domain_line}\n{msg}".strip())
