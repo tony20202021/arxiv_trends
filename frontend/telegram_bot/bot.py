@@ -269,6 +269,16 @@ def _proc_label(p_info: dict) -> str:
         short = target.split()[-1] if target else "watchfiles"
         return f"watchfiles:{short}"
 
+    # run_scheduler.py --step N → "scheduler:step1:fetch" etc.
+    _step_names = {"1": "fetch", "2": "extract", "3": "plots"}
+    if any("run_scheduler.py" in a for a in cmdline):
+        try:
+            idx = cmdline.index("--step")
+            step = cmdline[idx + 1]
+            return f"scheduler:step{step}:{_step_names.get(step, step)}"
+        except (ValueError, IndexError):
+            return "run_scheduler.py"
+
     # python scripts/foo.py → "foo.py"
     if len(cmdline) >= 2 and cmdline[1].endswith(".py"):
         return cmdline[1].rsplit("/", 1)[-1]
