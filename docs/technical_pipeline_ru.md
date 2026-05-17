@@ -166,9 +166,10 @@ ACTIVE_EXTRACTOR_KEY = "1_count_stopwords"  # изменить здесь
 - для каждого слова считает наклон (`numpy.polyfit`, degree=1)
 - возвращает топ-N с максимальным наклоном
 
-**`growing_slopes(pivot, keywords)`**:
-- считает наклон для каждого слова по **всему отображаемому периоду** (весь `pivot`)
-- используется для JSON-сайдкаров и подписей в Telegram
+**`growing_slopes(pivot, keywords, window_weeks=None)`**:
+- `window_weeks=None` → наклон по **всему отображаемому периоду** (весь `pivot`)
+- `window_weeks=N` → наклон по последним N неделям (`pivot.iloc[-N:]`)
+- вызывается дважды для каждого growing-графика: полный период и `GROWTH_WINDOW_WEEKS`
 - для `top_growing_pct.png` вычисляется отдельно по `pivot_pct` → slopes в %/нед
 
 ---
@@ -189,24 +190,28 @@ ACTIVE_EXTRACTOR_KEY = "1_count_stopwords"  # изменить здесь
 ```json
 {
   "keywords": ["learn", "train", "llm", "reason", "agent"],
-  "counts":   {"learn": 1234, "train": 987, "llm": 856, "reason": 743, "agent": 612},
-  "pcts":     {"learn": 3.2, "train": 2.5, "llm": 2.1, "reason": 1.8, "agent": 1.5},
-  "growth":   {"learn": 14.9, "train": 8.2, ...},
+  "counts":   {"learn": 1234, "train": 987, ...},
+  "pcts":     {"learn": 3.2, "train": 2.5, ...},
+  "growth":       {"learn": 14.9, "train": 8.2, ...},
+  "growth_short": {"learn": 22.1, "train": 5.1, ...},
+  "growth_window_weeks": 24,
+  "total_weeks": 51,
   "extractor": "1_count_stopwords"
 }
 ```
-- `growth` присутствует только в `top_growing.json` и `top_growing_pct.json`
-- В `top_growing.json` — slopes в ед./нед (абсолютные счётчики)
-- В `top_growing_pct.json` — slopes в %/нед (нормированные по числу статей)
+- `growth` / `growth_short` / `growth_window_weeks` / `total_weeks` — только в `top_growing*.json`
+- `growth` — slopes за весь отображаемый период (`total_weeks`)
+- `growth_short` — slopes за последние `growth_window_weeks` недель
+- В `top_growing.json` — slopes в ед./нед; в `top_growing_pct.json` — в %/нед
 
 Telegram-бот читает эти файлы для отображения слов с цифрами — без обращения к БД.
 
-`plot_keywords_over_time(pivot, keywords, title, out_path, ylabel, regression_window)`:
-- При `regression_window=True` — рисует линии линейной регрессии по **всему отображаемому периоду** (весь `pivot`)
+`plot_keywords_over_time(pivot, keywords, title, out_path, ylabel, regression_window, regression_window_short)`:
+- `regression_window=True` — рисует линию регрессии за **весь период** (стиль `·····`, alpha=0.5)
+- `regression_window_short=N` — рисует линию регрессии за **последние N недель** (стиль `- - -`, alpha=0.85)
+- Обе линии того же цвета что и кривая ключевого слова, но разным стилем
 - При пустых данных — сохраняет заглушку "No data"
-- Обрезает историю до `HISTORY_WEEKS`
-- `ylabel` параметризован (используется для абсолютных и процентных графиков)
-- Подпись оси X содержит количество недель в данных: `Week  (N нед.)`
+- Обрезает историю до `HISTORY_WEEKS`; подпись оси X: `Week  (N нед.)`
 
 `plot_article_counts(counts_by_week, title, out_path)` — столбчатая диаграмма статей по неделям
 
@@ -280,21 +285,24 @@ Telegram-бот читает эти файлы для отображения с�
 8. График: топ-растущие (%)
 9. Текст: топ-растущие (% slopes в %/нед)
 
-Команда `/domains` показывает inline-кнопки с количеством недель данных в каждом домене.
+Команда `/domains` показывает inline-кнопки с количеством недель данных в каждом домене
+(тот же диапазон дат что и на графиках: последние `HISTORY_WEEKS` завершённых недель).
 
-Команда `/status` показывает CPU / RAM / Disk и состояние каждого systemd-сервиса с последней строкой лога.
+Команда `/status` показывает CPU / RAM / Disk (топ-3 процессов) и состояние каждого
+systemd-сервиса с датой и фрагментом последней строки лога.
 
 Формат текстового сообщения (данные из JSON-сайдкаров, без обращения к БД):
 ```
 📌 Top-растущие (абс.):
-🔵● 1. learn  (2 862, 49.1%, ↑+15/нед)
-🟠■ 2. train  (1 194, 71.9%, ↑+8.2/нед)
+🔵● 1. learn  (2 862, 49.1%, ↑+15/нед(51), +22/нед(24))
+🟠■ 2. train  (1 194, 71.9%, ↑+8.2/нед(51), +5.1/нед(24))
 ...
 
 📌 Top-растущие (%/нед):
-🔵● 1. learn  (2 862, 49.1%, ↑-0.012%/нед)
+🔵● 1. learn  (2 862, 49.1%, ↑+0.171%/нед(51), +0.7%/нед(24))
 ...
 ```
+Два slope: за весь период `(N)` и за последние `GROWTH_WINDOW_WEEKS` недель `(24)`.
 
 ---
 
