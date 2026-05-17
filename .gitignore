@@ -4,6 +4,7 @@
 
 # Local plan / notes
 .PLAN.md
+.plan
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
