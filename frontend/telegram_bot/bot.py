@@ -326,12 +326,7 @@ def _top_procs(key: str, top_n: int = 3) -> str:
 def _sys_stats() -> str:
     try:
         import psutil
-        # Первый вызов cpu_percent всегда 0.0 — нужен прогрев
-        for p in psutil.process_iter(["cpu_percent"]):
-            pass
-        import time; time.sleep(0.5)
-
-        cpu = psutil.cpu_percent(interval=0.0)
+        cpu = psutil.cpu_percent(interval=0.5)
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
 
@@ -374,14 +369,12 @@ def _last_plot_age() -> str:
         return "?"
 
 
-async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+def _build_status_text() -> str:
     lines = ["Статус сервера\n"]
-
     lines.append(_sys_stats())
     lines.append(f"Последний график: {_last_plot_age()}")
     lines.append("")
     lines.append("Службы:")
-
     icon = {"active": "✅", "inactive": "⛔", "failed": "❌"}
     for svc, label in _SERVICES:
         state, last_log = _service_status(svc)
@@ -391,8 +384,13 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             line += f"\n    └ {last_log}"
         lines.append(line)
         lines.append("")
+    return "\n".join(lines)
 
-    await update.message.reply_text("\n".join(lines))
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    import asyncio
+    text = await asyncio.to_thread(_build_status_text)
+    await update.message.reply_text(text)
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
