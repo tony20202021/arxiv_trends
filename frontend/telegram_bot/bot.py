@@ -231,27 +231,48 @@ _SERVICES = [
 
 
 def _service_status(name: str) -> tuple[str, str]:
-    """Возвращает (active_state, last_log_line)."""
+    """Возвращает (active_state, log_summary).
+
+    log_summary: "HH:MM:SS | <first 20> | <last 20>"
+    """
     try:
         active = subprocess.check_output(
             ["systemctl", "is-active", name], text=True
         ).strip()
     except subprocess.CalledProcessError as e:
         active = (e.output or "unknown").strip()
+
     try:
-        log = subprocess.check_output(
+        raw = subprocess.check_output(
             ["journalctl", "-u", name, "-n", "1", "--no-pager", "-o", "short"],
             text=True, stderr=subprocess.DEVNULL,
-        ).strip().splitlines()
-        last = log[-1] if log else ""
-        # убрать длинный prefix journalctl (дата хост юнит pid)
-        if ": " in last:
-            last = last.split(": ", 1)[1][:80]
-        else:
-            last = last[:80]
+        ).strip()
+        lines = raw.splitlines()
+        if not lines:
+            return active, ""
+
+        # Первая строка содержит timestamp: "May 17 12:13:14 host unit[pid]: msg"
+        first_line = lines[0]
+        # Извлечь время (3-е поле — HH:MM:SS)
+        parts = first_line.split()
+        time_str = parts[2] if len(parts) >= 3 else ""
+
+        # Текст сообщения — после "]: " или ": "
+        def _msg(line: str) -> str:
+            return line.split(": ", 1)[1].strip() if ": " in line else line.strip()
+
+        first_msg = _msg(first_line)[:20]
+        last_msg  = _msg(lines[-1])[:20] if len(lines) > 1 else ""
+
+        summary = time_str
+        if first_msg:
+            summary += f" | {first_msg}"
+        if last_msg and last_msg != first_msg:
+            summary += f" | {last_msg}"
     except Exception:
-        last = ""
-    return active, last
+        summary = ""
+
+    return active, summary
 
 
 def _proc_label(p_info: dict) -> str:
