@@ -218,13 +218,13 @@ def _plots_for_domain(domain_id: str) -> dict[str, Path | None]:
 
 
 _SERVICES = [
+    ("mongod",          "MongoDB"),
     ("arxiv-backend-1", "Backend 1: fetch"),
     ("arxiv-backend-2", "Backend 2: extract"),
     ("arxiv-backend-3", "Backend 3: plots"),
     ("arxiv-frontend",  "Telegram bot"),
     ("arxiv-web",       "Web dashboard"),
     ("arxiv-tunnel",    "CF Tunnel"),
-    ("mongod",          "MongoDB"),
 ]
 
 
@@ -303,6 +303,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         if last_log:
             line += f"\n    └ {last_log}"
         lines.append(line)
+        lines.append("")
 
     await update.message.reply_text("\n".join(lines))
 
