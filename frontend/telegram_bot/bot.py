@@ -62,11 +62,13 @@ def _domain_week_count(domain_slug: str) -> int:
     """Число недель в MongoDB для домена."""
     try:
         import pymongo
-        raw = _DOMAIN_RAW.get(domain_slug, domain_slug)
         mongo_uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
         mongo_db  = os.environ.get("MONGO_DB", "arxiv_trends")
         client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
         col = client[mongo_db]["weekly_keyword_counts"]
+        if domain_slug == "_all":
+            return len(col.distinct("week_start"))
+        raw = _DOMAIN_RAW.get(domain_slug, domain_slug)
         return len(col.distinct("week_start", {"domain": raw}))
     except Exception:
         return 0
