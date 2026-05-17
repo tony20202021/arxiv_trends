@@ -318,43 +318,69 @@ def _proc_label(p_info: dict) -> str:
     return (p_info.get("name") or cmdline[0].rsplit("/", 1)[-1])[:30]
 
 
-def _top_procs(key: str, top_n: int = 3) -> str:
-    """Топ-N процессов по cpu_percent или memory_percent."""
-    try:
-        import psutil
-        procs = []
-        for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent"]):
-            try:
-                procs.append(p.info)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-        procs.sort(key=lambda x: x.get(key) or 0, reverse=True)
-        lines = []
-        for p in procs[:top_n]:
-            val = p.get(key) or 0
-            label = _proc_label(p)
-            if key == "memory_percent":
-                try:
-                    mem_mb = psutil.Process(p["pid"]).memory_info().rss // 1024 ** 2
-                    lines.append(f"  {label}: {mem_mb} MB")
-                except Exception:
-                    lines.append(f"  {label}: {val:.1f}%")
-            else:
-                lines.append(f"  {label}: {val:.1f}%")
-        return "\n".join(lines)
-    except Exception:
-        return ""
+def _collect_procs_cpu(top_n: int = 3) -> list[tuple[str, float]]:
+    """Два замера с паузой для корректного cpu_percent по процессам."""
+    import psutil, time
+    # Первый вызов — инициализация счётчиков (всегда 0.0)
+    proc_objs = []
+    for p in psutil.process_iter(["pid", "name"]):
+        try:
+            p.cpu_percent()
+            proc_objs.append(p)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    time.sleep(1.0)
+    # Второй вызов — реальный % за прошедшую секунду
+    results = []
+    for p in proc_objs:
+        try:
+            cpu = p.cpu_percent()
+            results.append((p.info, cpu))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    results.sort(key=lambda x: x[1], reverse=True)
+    lines = []
+    for info, cpu in results[:top_n]:
+        label = _proc_label(info)
+        lines.append((label, f"{cpu:.1f}%"))
+    return lines
+
+
+def _collect_procs_mem(top_n: int = 3) -> list[tuple[str, str]]:
+    import psutil
+    procs = []
+    for p in psutil.process_iter(["pid", "name", "memory_percent"]):
+        try:
+            procs.append(p.info)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    procs.sort(key=lambda x: x.get("memory_percent") or 0, reverse=True)
+    lines = []
+    for p in procs[:top_n]:
+        label = _proc_label(p)
+        try:
+            mem_mb = psutil.Process(p["pid"]).memory_info().rss // 1024 ** 2
+            lines.append((label, f"{mem_mb} MB"))
+        except Exception:
+            lines.append((label, f"{p.get('memory_percent', 0):.1f}%"))
+    return lines
 
 
 def _sys_stats() -> str:
     try:
         import psutil
-        cpu = psutil.cpu_percent(interval=0.5)
+        # CPU: сначала запускаем замер процессов (включает sleep 1s),
+        # потом берём системный % за тот же период
+        psutil.cpu_percent()          # инициализация системного счётчика
+        top_cpu_data = _collect_procs_cpu()   # внутри sleep(1s)
+        cpu = psutil.cpu_percent()    # % за последнюю секунду
+
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
+        top_mem_data = _collect_procs_mem()
 
-        top_cpu = _top_procs("cpu_percent")
-        top_mem = _top_procs("memory_percent")
+        top_cpu = "\n".join(f"  {l}: {v}" for l, v in top_cpu_data)
+        top_mem = "\n".join(f"  {l}: {v}" for l, v in top_mem_data)
 
         lines = [
             f"CPU:  {cpu:.0f}%",
