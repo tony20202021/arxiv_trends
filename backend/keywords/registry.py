@@ -46,12 +46,12 @@ _sklearn_extractor = None
 
 
 def _get_sklearn_extractor():
-    """Ленивая инициализация TfidfVectorizer."""
+    """Ленивая инициализация CountVectorizer для биграммного TF."""
     global _sklearn_extractor
     if _sklearn_extractor is None:
-        from sklearn.feature_extraction.text import TfidfVectorizer
+        from sklearn.feature_extraction.text import CountVectorizer
         from config.constants import STOPWORDS_EN
-        _sklearn_extractor = TfidfVectorizer(
+        _sklearn_extractor = CountVectorizer(
             stop_words=list(STOPWORDS_EN),
             ngram_range=(1, 2),   # уни- и биграммы (ловит "neural network", "diffusion model")
             min_df=1,
@@ -62,41 +62,34 @@ def _get_sklearn_extractor():
 
 
 def _v3(abstract: str) -> Dict[str, int]:
-    """3_tfidf_sklearn: TF-IDF (sklearn) с биграммами для одного абстракта.
+    """3_tfidf_sklearn: уни- и биграммы с raw TF (sklearn CountVectorizer).
 
-    Использует per-document TF-IDF (fit+transform на одном тексте).
+    Возвращает raw count вхождений каждого термина в абстракте.
     Главное преимущество перед v1 — захватывает биграммы типа
     «neural network», «diffusion model», «attention mechanism».
-    Веса масштабируются в диапазон 1–100.
     """
-    import numpy as np
     from config.constants import STOPWORDS_EN
 
     vec = _get_sklearn_extractor()
     try:
-        tfidf_matrix = vec.fit_transform([abstract or ""])
+        count_matrix = vec.fit_transform([abstract or ""])
     except ValueError:
         return {}
 
-    scores = tfidf_matrix.toarray()[0]
+    counts_arr = count_matrix.toarray()[0]
     feature_names = vec.get_feature_names_out()
 
-    pairs = [(feature_names[i], scores[i]) for i in np.nonzero(scores)[0]]
-    if not pairs:
-        return {}
-
-    max_score = max(s for _, s in pairs)
     result: Dict[str, int] = {}
-    for term, score in pairs:
-        # Фильтруем одиночные стоп-слова и слишком короткие термины
+    for i, count in enumerate(counts_arr):
+        if count == 0:
+            continue
+        term = feature_names[i]
         parts = term.split()
         if any(p in STOPWORDS_EN for p in parts):
             continue
         if len(term) < 3:
             continue
-        # Масштабируем: 1..100
-        count = max(1, int(score / max_score * 100))
-        result[term] = count
+        result[term] = int(count)
 
     return result
 
@@ -208,7 +201,7 @@ def _v6(abstract: str) -> Dict[str, int]:
 EXTRACTORS: Dict[str, ExtractorSpec] = {
     "1_count_stopwords": ExtractorSpec(1, "count+stopwords", _v1),
     "2_llm":             ExtractorSpec(2, "LLM",             _v2),
-    "3_tfidf_sklearn":   ExtractorSpec(3, "TF-IDF/sklearn",  _v3),
+    "3_tfidf_sklearn":   ExtractorSpec(3, "bigram-TF/sklearn", _v3),
     "4_tfidf_gensim":    ExtractorSpec(4, "TF-IDF/gensim",   _v4),
     "6_yake":            ExtractorSpec(6, "YAKE",            _v6),
     "7_ensemble_136":    ExtractorSpec(7, "ensemble(1+3+6)", _v7),
