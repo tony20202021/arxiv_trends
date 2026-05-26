@@ -42,10 +42,51 @@ load_dotenv(_root / ".env")
 from pipeline import fetch_abstracts, extract_keywords_batch, recompute_aggregates, render_plots
 from utils.cli import parse_date
 from utils.logging_setup import setup_logging
+from config.constants import AGGREGATOR_VERSION, PLOTTER_VERSION
+from keywords.registry import ACTIVE_EXTRACTOR_KEY
 
 logger = logging.getLogger(__name__)
 
 _shutdown = False
+
+# Фиксируем момент старта процесса для обнаружения изменений файлов после запуска.
+_PROCESS_START_TIME = time.time()
+
+# Пути, которые мониторит watchfiles для каждого шага (должны совпадать со start_*.sh).
+_WATCH_PATHS: dict[str, list[str]] = {
+    "1": ["backend/storage", "backend/pipeline.py",
+          "config", "utils", "scripts/run_scheduler.py"],
+    "2": ["backend/keywords", "backend/llm", "backend/storage",
+          "backend/extract.py", "backend/pipeline.py",
+          "config", "utils", "scripts/run_scheduler.py"],
+    "3": ["backend/analytics", "backend/plots", "backend/storage",
+          "backend/aggregate.py", "backend/plot_service.py", "backend/pipeline.py",
+          "config", "utils", "scripts/run_scheduler.py"],
+}
+
+
+def _stale_file(step: str) -> str | None:
+    """Если хоть один .py-файл в мониторируемых путях изменился после старта
+    процесса — возвращает его имя. Иначе None.
+
+    Защита от гонки: watchfiles перезапускает дочерний процесс при первом
+    изменении, но пока новый процесс стартует, следующие файлы могут уже
+    измениться и быть пропущены watchfiles. Этот метод компенсирует пропуск:
+    при обнаружении изменения планировщик сам завершается (exit 0), watchfiles
+    сделает ещё один перезапуск с актуальным кодом.
+    """
+    for rel in _WATCH_PATHS.get(step, []):
+        path = _root / rel
+        if not path.exists():
+            continue
+        candidates = [path] if path.is_file() else path.rglob("*.py")
+        for p in candidates:
+            try:
+                if p.stat().st_mtime > _PROCESS_START_TIME:
+                    return str(p.relative_to(_root))
+            except OSError:
+                pass
+    return None
 
 # Число последовательных ошибок до отправки Telegram-алерта
 ALERT_FAIL_THRESHOLD = 3
@@ -90,6 +131,7 @@ def run_once(
     out_dir: str,
     from_date: dt.date | None,
     to_date: dt.date | None,
+    force: bool = False,
 ) -> bool:
     """Запустить один прогон. Возвращает True при успехе, False при ошибке."""
     _STEP_NAMES = {"1": "fetch abstracts", "2": "extract keywords", "3": "aggregates + plots"}
@@ -122,6 +164,7 @@ def run_once(
                 domains=domains,
                 mongo_uri=mongo_uri,
                 mongo_db=mongo_db,
+                force=force,
                 date_from=week_from,
             )
             render_plots(
@@ -130,6 +173,7 @@ def run_once(
                 mongo_db=mongo_db,
                 out_dir=out_dir,
                 date_from=week_from,
+                force=force,
             )
 
         logger.info("=== Прогон завершён успешно ===")
@@ -159,6 +203,8 @@ def main():
     ap.add_argument("--log-format", default="text", choices=["text", "json"])
     ap.add_argument("--run-once", action="store_true",
                     help="Запустить один прогон и выйти")
+    ap.add_argument("--force", action="store_true",
+                    help="Шаг 3: пересчитать агрегаты даже если они актуальны")
     args = ap.parse_args()
 
     setup_logging(
@@ -184,8 +230,18 @@ def main():
     tg_chat_id = os.environ.get("ALERT_TELEGRAM_CHAT_ID", "")
 
     _STEP_NAMES = {"1": "fetch abstracts", "2": "extract keywords", "3": "aggregates + plots"}
-    logger.info("Планировщик запущен. Шаг %s (%s), интервал=%.1f ч.",
-                args.step, _STEP_NAMES.get(args.step, "?"), args.interval_hours)
+    logger.info(
+        "Планировщик запущен. Шаг %s (%s), интервал=%.1f ч. | extractor=%s agg_v=%s plot_v=%s",
+        args.step, _STEP_NAMES.get(args.step, "?"), args.interval_hours,
+        ACTIVE_EXTRACTOR_KEY, AGGREGATOR_VERSION, PLOTTER_VERSION,
+    )
+
+    # Гарантированный перезапуск: если файлы изменились пока процесс стартовал —
+    # сразу выходим, watchfiles запустит нас снова с актуальным кодом.
+    stale = _stale_file(args.step)
+    if stale:
+        logger.info("Файл '%s' изменился во время старта — выход для перезагрузки кода", stale)
+        sys.exit(0)
     if tg_token and tg_chat_id:
         logger.info("Telegram-алерты включены (chat_id=%s, порог=%d ошибок)", tg_chat_id, ALERT_FAIL_THRESHOLD)
     else:
@@ -201,6 +257,7 @@ def main():
         out_dir=args.out,
         from_date=from_date,
         to_date=to_date,
+        force=args.force,
     )
 
     if args.run_once:
@@ -210,6 +267,10 @@ def main():
     consecutive_failures = 0
 
     while not _shutdown:
+        stale = _stale_file(args.step)
+        if stale:
+            logger.info("Файл '%s' изменился после старта — выход для перезагрузки кода", stale)
+            sys.exit(0)
         success = run_once(**kwargs)
         gc.collect()
         try:

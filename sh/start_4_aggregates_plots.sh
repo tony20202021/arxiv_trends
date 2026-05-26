@@ -16,11 +16,9 @@ if command -v conda &>/dev/null && conda info --envs | grep -q "^$CONDA_ENV"; th
 fi
 
 echo "Сервис 3 (aggregates+plots) запущен с авто-перезапуском."
-echo "Слежу за: backend/analytics  backend/plots  backend/storage  backend/aggregate.py  backend/plot_service.py  backend/pipeline.py  config  utils  scripts/run_scheduler.py"
+echo "Слежу за: backend  config  utils  scripts"
 echo "Ctrl+C для остановки."
 
 exec python -m watchfiles \
     "python scripts/run_scheduler.py --step 3 --interval-hours 1 $*" \
-    backend/analytics backend/plots backend/storage \
-    backend/aggregate.py backend/plot_service.py backend/pipeline.py \
-    config utils scripts/run_scheduler.py
+    backend config utils scripts

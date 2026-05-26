@@ -23,12 +23,19 @@ def pivot_week_keyword(df: pd.DataFrame) -> pd.DataFrame:
     return p.sort_index()
 
 
-def pivot_week_keyword_pct(pivot: pd.DataFrame, article_counts: dict) -> pd.DataFrame:
+def pivot_week_keyword_pct(
+    pivot: pd.DataFrame,
+    article_counts: dict,
+    score_scale: int = 1,
+) -> pd.DataFrame:
     """Нормализовать pivot по числу статей за каждую неделю (результат в %).
 
     Args:
-        pivot: DataFrame из pivot_week_keyword()
+        pivot:         DataFrame из pivot_week_keyword()
         article_counts: {datetime: int} из store.get_article_counts_by_week()
+        score_scale:   максимальный score на статью (ExtractorSpec.max_score).
+                       Для бинарных/счётчиков = 1; для YAKE (top=30) = 30.
+                       Делит на articles*score_scale → результат в [0, 100%].
 
     Returns:
         DataFrame с теми же колонками, значения в % (0–100)
@@ -47,17 +54,36 @@ def pivot_week_keyword_pct(pivot: pd.DataFrame, article_counts: dict) -> pd.Data
     for week in pct.index:
         n = normalized.get(week, 0)
         if n > 0:
-            pct.loc[week] = pct.loc[week] / n * 100
+            pct.loc[week] = pct.loc[week] / (n * score_scale) * 100
         else:
             pct.loc[week] = 0.0
     return pct
+
+
+def _dedup_substrings(keywords: List[str], limit: int) -> List[str]:
+    """Из отсортированного по релевантности списка оставляет наиболее специфичный
+    термин из каждой группы подстрок. Если новый термин содержит уже принятый как
+    подстроку — заменяет его (более длинная фраза предпочтительнее).
+    Возвращает не более `limit` терминов."""
+    kept: List[str] = []
+    for kw in keywords:
+        # пропустить, если kw сам является подстрокой уже принятого
+        if any(kw in other for other in kept):
+            continue
+        # заменить принятые, которые являются подстроками нового (более длинного) термина
+        kept = [other for other in kept if other not in kw]
+        kept.append(kw)
+        if len(kept) == limit:
+            break
+    return kept
 
 
 def top_popular_now(pivot: pd.DataFrame, top_n: int = TOP_N) -> List[str]:
     if pivot.empty:
         return []
     last_week = pivot.index.max()
-    return list(pivot.loc[last_week].sort_values(ascending=False).head(top_n).index)
+    ranked = list(pivot.loc[last_week].sort_values(ascending=False).index)
+    return _dedup_substrings(ranked, top_n)
 
 
 def top_growing_last_window(
@@ -83,8 +109,8 @@ def top_growing_last_window(
         slope = np.polyfit(x, y, 1)[0]
         scores[kw] = float(slope)
 
-    top = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
-    return [k for k, _ in top]
+    ranked = [k for k, _ in sorted(scores.items(), key=lambda kv: kv[1], reverse=True)]
+    return _dedup_substrings(ranked, top_n)
 
 
 def growing_slopes(

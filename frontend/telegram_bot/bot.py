@@ -59,40 +59,50 @@ _DOMAIN_TITLES, _DOMAIN_RAW = _load_domain_titles()
 
 
 def _load_domains_info(domain_slugs: list[str]) -> dict[str, dict]:
-    """Один коннект к MongoDB: недели + версии для всех доменов.
+    """Один коннект к MongoDB: недели (из aggregates) + версии для всех доменов.
 
     Returns:
-        {slug: {"total": int, "complete": int, "versions": list[int], "updated_at": datetime|None}}
+        {slug: {"total_weeks": int, "versions": list[int], "updated_at": datetime|None}}
     """
-    empty = {s: {"total": 0, "complete": 0, "versions": [], "updated_at": None} for s in domain_slugs}
+    empty = {s: {"total_weeks": 0, "versions": [], "updated_at": None} for s in domain_slugs}
     try:
         import pymongo
         mongo_uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
         mongo_db  = os.environ.get("MONGO_DB", "arxiv_trends")
         client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
-        col      = client[mongo_db]["weekly_keyword_counts"]
         meta_col = client[mongo_db]["domain_meta"]
+        agg_col  = client[mongo_db]["aggregates"]
+
+        col     = client[mongo_db]["weekly_keyword_counts"]
+        meta_by_raw = {m["domain"]: m for m in meta_col.find({}, {"_id": 0})}
+        agg_by_raw  = {a["domain"]: a for a in agg_col.find({}, {"_id": 0, "domain": 1, "total_weeks": 1, "extractor_key": 1})}
 
         today   = dt.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         _before = today - dt.timedelta(days=today.weekday() + 7)
 
-        meta_by_raw = {m["domain"]: m for m in meta_col.find({}, {"_id": 0})}
+        def _extractor_version(extractor_key: str) -> list[int]:
+            """Parse db_id from extractor_key string like '6_yake' → [6]."""
+            try:
+                return [int(extractor_key.split("_")[0])]
+            except (AttributeError, ValueError, IndexError):
+                return []
 
         result = {}
         for slug in domain_slugs:
             raw = _DOMAIN_RAW.get(slug, slug)
-            weeks = col.distinct("week_start") if slug == "_all" else col.distinct("week_start", {"domain": raw})
-            weeks = [w.replace(tzinfo=None) if getattr(w, "tzinfo", None) else w for w in weeks]
-            total    = len(weeks)
-            complete = len([w for w in weeks if w <= _before])
+            agg_key = "_all" if slug == "_all" else raw
+            agg_doc = agg_by_raw.get(agg_key, {})
+            total_weeks = agg_doc.get("total_weeks") or 0
+            if not total_weeks:
+                weeks = col.distinct("week_start") if slug == "_all" else col.distinct("week_start", {"domain": raw})
+                weeks = [w.replace(tzinfo=None) if getattr(w, "tzinfo", None) else w for w in weeks]
+                total_weeks = len([w for w in weeks if w <= _before])
+            versions   = _extractor_version(agg_doc.get("extractor_key", ""))
             if slug == "_all":
-                versions   = sorted({v for m in meta_by_raw.values() for v in m.get("keyword_versions", [])})
                 updated_at = None
             else:
-                meta       = meta_by_raw.get(raw, {})
-                versions   = meta.get("keyword_versions", [])
-                updated_at = meta.get("updated_at")
-            result[slug] = {"total": total, "complete": complete, "versions": versions, "updated_at": updated_at}
+                updated_at = meta_by_raw.get(raw, {}).get("updated_at")
+            result[slug] = {"total_weeks": total_weeks, "versions": versions, "updated_at": updated_at}
         return result
     except Exception:
         return empty
@@ -521,12 +531,11 @@ async def cmd_domains(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     info = _load_domains_info(domain_ids)
     keyboard = []
     for d in domain_ids:
-        d_info   = info.get(d, {})
-        total    = d_info.get("total", 0)
-        complete = d_info.get("complete", 0)
-        versions = d_info.get("versions", [])
+        d_info      = info.get(d, {})
+        total_weeks = d_info.get("total_weeks", 0)
+        versions    = d_info.get("versions", [])
         v_str    = ("v" + ",".join(str(v) for v in versions)) if versions else ""
-        week_str = f"{total} (в бд) / {complete} (полных) недель" if total else ""
+        week_str = f"{total_weeks} недель" if total_weeks else ""
         parts    = [p for p in [v_str, week_str] if p]
         label    = f"{d}:  {' | '.join(parts)}" if parts else d
         keyboard.append([InlineKeyboardButton(label, callback_data=f"trends:{d}")])
@@ -646,15 +655,14 @@ async def cmd_meta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     lines = ["📊 Метаданные доменов:\n"]
     for d in domain_ids:
-        d_info     = info.get(d, {})
-        total      = d_info.get("total", 0)
-        complete   = d_info.get("complete", 0)
-        versions   = d_info.get("versions", [])
-        updated_at = d_info.get("updated_at")
-        v_str      = ("v" + ", v".join(str(v) for v in versions)) if versions else "—"
-        week_str   = f"{total} в бд / {complete} полных" if total else "нет данных"
-        upd_str    = updated_at.strftime("%d.%m %H:%M") if updated_at else ""
-        upd_part   = f"  [{upd_str}]" if upd_str else ""
+        d_info      = info.get(d, {})
+        total_weeks = d_info.get("total_weeks", 0)
+        versions    = d_info.get("versions", [])
+        updated_at  = d_info.get("updated_at")
+        v_str    = ("v" + ", v".join(str(v) for v in versions)) if versions else "—"
+        week_str = f"{total_weeks}" if total_weeks else "нет данных"
+        upd_str  = updated_at.strftime("%d.%m %H:%M") if updated_at else ""
+        upd_part = f"  [{upd_str}]" if upd_str else ""
         lines.append(f"{d}:  {v_str}  |  {week_str} нед.{upd_part}")
 
     await update.message.reply_text("\n".join(lines))

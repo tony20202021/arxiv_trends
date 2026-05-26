@@ -13,7 +13,7 @@ class MongoStore:
         self.client = MongoClient(
             mongo_uri,
             serverSelectionTimeoutMS=5_000,
-            socketTimeoutMS=300_000,   # 5 мин: агрегация _all (625K строк) занимает ~2.5 мин
+            socketTimeoutMS=600_000,   # 10 мин: агрегация _all по ~24M строкам занимает ~5 мин
             connectTimeoutMS=5_000,
         )
         self.db = self.client[db_name]
@@ -84,6 +84,92 @@ class MongoStore:
         hi = max(week_starts)
         cur = self.col.find({"domain": domain, "week_start": {"$gte": lo, "$lte": hi}}, {"_id": 0})
         return list(cur)
+
+    def get_top_keyword_candidates(
+        self,
+        domain: str,
+        week_starts: List[dt.datetime],
+        top_k: int = 1000,
+    ) -> List[str]:
+        """Top-K keywords by total count for a domain over given weeks (server-side)."""
+        lo = min(week_starts)
+        hi = max(week_starts)
+        pipeline = [
+            {"$match": {"domain": domain, "week_start": {"$gte": lo, "$lte": hi}}},
+            {"$group": {"_id": "$keyword", "total": {"$sum": "$count"}}},
+            {"$sort": {"total": -1}},
+            {"$limit": top_k},
+        ]
+        return [r["_id"] for r in self.col.aggregate(pipeline)]
+
+    def get_counts_for_keywords(
+        self,
+        domain: str,
+        week_starts: List[dt.datetime],
+        keywords: List[str],
+    ) -> List[dict]:
+        """Per-week counts for specific keywords only (single domain)."""
+        if not keywords:
+            return []
+        lo = min(week_starts)
+        hi = max(week_starts)
+        cur = self.col.find(
+            {"domain": domain, "week_start": {"$gte": lo, "$lte": hi}, "keyword": {"$in": keywords}},
+            {"_id": 0},
+        )
+        return list(cur)
+
+    def get_top_keyword_candidates_all(
+        self,
+        week_starts: List[dt.datetime],
+        top_k: int = 1000,
+    ) -> List[str]:
+        """Top-K keywords by total count across all domains over given weeks.
+
+        Two-phase: collect per-domain candidates (indexed, fast), then re-rank
+        the union cross-domain. Avoids a full ~24M-row collection scan.
+        """
+        domains = self.col.distinct("domain")
+        all_candidates: set = set()
+        for domain in domains:
+            dc = self.get_top_keyword_candidates(domain, week_starts, top_k=top_k)
+            all_candidates.update(dc)
+        if not all_candidates:
+            return []
+        lo = min(week_starts)
+        hi = max(week_starts)
+        pipeline = [
+            {"$match": {"week_start": {"$gte": lo, "$lte": hi}, "keyword": {"$in": list(all_candidates)}}},
+            {"$group": {"_id": "$keyword", "total": {"$sum": "$count"}}},
+            {"$sort": {"total": -1}},
+            {"$limit": top_k},
+        ]
+        return [r["_id"] for r in self.col.aggregate(pipeline, allowDiskUse=True)]
+
+    def get_counts_all_domains_for_keywords(
+        self,
+        week_starts: List[dt.datetime],
+        keywords: List[str],
+    ) -> List[dict]:
+        """Per-week counts summed across all domains for specific keywords only."""
+        if not keywords:
+            return []
+        lo = min(week_starts)
+        hi = max(week_starts)
+        pipeline = [
+            {"$match": {"week_start": {"$gte": lo, "$lte": hi}, "keyword": {"$in": keywords}}},
+            {"$group": {
+                "_id": {"week_start": "$week_start", "keyword": "$keyword"},
+                "count": {"$sum": "$count"},
+            }},
+            {"$project": {
+                "_id": 0,
+                "week_start": "$_id.week_start",
+                "keyword": "$_id.keyword",
+                "count": 1,
+            }},
+        ]
+        return list(self.col.aggregate(pipeline, allowDiskUse=True))
 
     def get_all_domains(self) -> List[str]:
         """Вернуть список всех доменов, которые есть в БД."""
@@ -177,21 +263,32 @@ class MongoStore:
         top_popular: list[str],
         top_growing: list[str],
         extractor_key: str = "",
+        total_weeks: int | None = None,
+        aggregator_version: int | None = None,
     ) -> None:
         """Сохранить предвычисленные топ-списки в коллекцию aggregates."""
         agg_col = self.db["aggregates"]
+        doc: dict = {
+            "domain": domain,
+            "computed_at": computed_at,
+            "top_popular": top_popular,
+            "top_growing": top_growing,
+            "extractor_key": extractor_key,
+        }
+        if total_weeks is not None:
+            doc["total_weeks"] = total_weeks
+        if aggregator_version is not None:
+            doc["aggregator_version"] = aggregator_version
+        agg_col.update_one({"domain": domain}, {"$set": doc}, upsert=True)
+        logger.debug("Saved aggregates for domain '%s' (extractor=%s, agg_v=%s)", domain, extractor_key, aggregator_version)
+
+    def save_plots_rendered(self, domain: str, rendered_at: dt.datetime, plotter_version: int) -> None:
+        """Обновить метаданные последнего рендеринга графиков в документе aggregates."""
+        agg_col = self.db["aggregates"]
         agg_col.update_one(
             {"domain": domain},
-            {"$set": {
-                "domain": domain,
-                "computed_at": computed_at,
-                "top_popular": top_popular,
-                "top_growing": top_growing,
-                "extractor_key": extractor_key,
-            }},
-            upsert=True,
+            {"$set": {"plots_rendered_at": rendered_at, "plotter_version": plotter_version}},
         )
-        logger.debug("Saved aggregates for domain '%s' (extractor=%s)", domain, extractor_key)
 
     def get_aggregated(self, domain: str) -> dict | None:
         """Получить последние предвычисленные топ-списки для домена."""
@@ -239,6 +336,43 @@ class MongoStore:
             upsert=True,
         )
         return result.upserted_id is not None
+
+    def has_articles_with_old_version(
+        self,
+        domain: str,
+        week_starts: List[dt.datetime],
+        current_version: int,
+    ) -> bool:
+        """Есть ли статьи с устаревшей (не-None) версией экстрактора."""
+        return self.articles.count_documents({
+            "domain": domain,
+            "week_start": {"$in": week_starts},
+            "keyword_extractor_version": {"$exists": True, "$ne": None, "$lt": current_version},
+        }, limit=1) > 0
+
+    def reset_article_keywords(
+        self,
+        domain: str,
+        week_starts: List[dt.datetime],
+        current_version: int,
+    ) -> int:
+        """Сбросить ключевые слова статей старых версий для чистого переключения.
+
+        Обнуляет keywords и keyword_extractor_version, снимает updated_at —
+        чтобы aggregate.py не считал агрегаты актуальными после чистки счётчиков.
+        """
+        result = self.articles.update_many(
+            {
+                "domain": domain,
+                "week_start": {"$in": week_starts},
+                "keyword_extractor_version": {"$exists": True, "$ne": None, "$lt": current_version},
+            },
+            {
+                "$set": {"keywords": None, "keyword_extractor_version": None},
+                "$unset": {"updated_at": ""},
+            },
+        )
+        return result.modified_count
 
     def _extraction_query(self, domain: str, week_starts: List[dt.datetime], extractor_version: int) -> dict:
         return {
@@ -325,14 +459,17 @@ class MongoStore:
         """Все недели присутствующие в articles для домена."""
         return sorted(self.articles.distinct("week_start", {"domain": domain}))
 
-    def delete_week_counts_for_weeks(self, domain: str, week_starts: List[dt.datetime]) -> int:
-        """Удалить keyword counts для домена за конкретные недели."""
+    def delete_week_counts_for_weeks(self, domain: str, week_starts: List[dt.datetime], batch_size: int = 5) -> int:
+        """Удалить keyword counts для домена за конкретные недели (батчами, чтобы не превышать socketTimeout)."""
         if not week_starts:
             return 0
-        result = self.col.delete_many({"domain": domain, "week_start": {"$in": week_starts}})
+        total = 0
+        for i in range(0, len(week_starts), batch_size):
+            batch = week_starts[i:i + batch_size]
+            total += self.col.delete_many({"domain": domain, "week_start": {"$in": batch}}).deleted_count
         logger.info("Deleted %d keyword-count docs for domain '%s' (%d weeks)",
-                    result.deleted_count, domain, len(week_starts))
-        return result.deleted_count
+                    total, domain, len(week_starts))
+        return total
 
     def delete_domain(self, domain: str) -> int:
         """Удалить все записи домена. Возвращает количество удалённых документов."""

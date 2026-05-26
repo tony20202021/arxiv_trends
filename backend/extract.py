@@ -28,11 +28,9 @@ def extract_keywords_batch(
 ) -> dict:
     """Сервис 2: читает articles из БД, извлекает ключевые слова, записывает обратно.
 
-    Обрабатывает статьи у которых:
-    - keywords = None (ещё не обработаны), ИЛИ
-    - keyword_extractor_version < ACTIVE_EXTRACTOR.db_id (версия устарела)
-
-    При обновлении версии: вычитает старые keyword counts, добавляет новые.
+    При смене версии экстрактора выполняет чистый переход:
+    удаляет все счётчики домена и сбрасывает статьи старых версий в None,
+    после чего извлекает ключевые слова заново с нуля.
 
     Returns:
         dict {domain: {"processed": int, "skipped": int}}
@@ -57,6 +55,16 @@ def extract_keywords_batch(
             if round_total == 0:
                 break
 
+            # Чистый переход при смене версии: удалить старые счётчики и сбросить статьи
+            if round_num == 0 and store.has_articles_with_old_version(dname, week_datetimes, ACTIVE_EXTRACTOR.db_id):
+                cleared = store.delete_week_counts_for_weeks(dname, week_datetimes)
+                reset = store.reset_article_keywords(dname, week_datetimes, ACTIVE_EXTRACTOR.db_id)
+                logger.info(
+                    "  Чистый переход → v%d: сброшено %d статей, удалено %d строк счётчиков",
+                    ACTIVE_EXTRACTOR.db_id, reset, cleared,
+                )
+                round_total = store.count_articles_for_extraction(dname, week_datetimes, ACTIVE_EXTRACTOR.db_id)
+
             round_num += 1
             logger.info("  Раунд %d: статей для обработки %d", round_num, round_total)
             done_in_round = 0
@@ -76,7 +84,6 @@ def extract_keywords_batch(
                         arxiv_id = art["arxiv_id"]
                         abstract = art.get("abstract") or ""
                         ws_dt = art["week_start"]
-                        old_keywords: dict | None = art.get("keywords")
 
                         if not abstract:
                             skipped += 1
@@ -85,11 +92,6 @@ def extract_keywords_batch(
                             continue
 
                         new_keywords = extract_keywords(abstract)
-
-                        # Если была старая версия — вычитаем старые counts
-                        if old_keywords:
-                            minus = {k: -v for k, v in old_keywords.items()}
-                            store.upsert_week_counts(dname, ws_dt, minus)
 
                         # Записываем новые keywords в articles
                         store.save_article_keywords(arxiv_id, dname, new_keywords, ACTIVE_EXTRACTOR.db_id)
@@ -103,8 +105,7 @@ def extract_keywords_batch(
         logger.info("  Готово: обработано=%d, пропущено=%d", processed, skipped)
         stats[dname] = {"processed": processed, "skipped": skipped}
 
-        versions = store.get_article_versions(dname)
-        store.upsert_domain_meta(dname, versions)
-        logger.info("  domain_meta: %s → версии %s", dname, versions)
+        store.upsert_domain_meta(dname, [ACTIVE_EXTRACTOR.db_id])
+        logger.info("  domain_meta: %s → версия %s", dname, ACTIVE_EXTRACTOR.db_id)
 
     return stats

@@ -15,8 +15,8 @@ from typing import List
 
 from slugify import slugify
 
-from config.constants import TOP_N, GROWTH_WINDOW_WEEKS
-from keywords.registry import ACTIVE_EXTRACTOR_KEY
+from config.constants import TOP_N, GROWTH_WINDOW_WEEKS, PLOTTER_VERSION
+from keywords.registry import ACTIVE_EXTRACTOR_KEY, ACTIVE_EXTRACTOR
 from storage.mongo import MongoStore
 from analytics.trends import (
     to_frame, pivot_week_keyword, pivot_week_keyword_pct,
@@ -26,6 +26,12 @@ from plots.plotter import plot_keywords_over_time, plot_article_counts, build_ke
 from utils import last_complete_week_start
 
 logger = logging.getLogger(__name__)
+
+_CANDIDATES_K = 1000  # pre-select server-side before loading into Python
+
+
+def _growth_weeks(week_datetimes: list) -> list:
+    return week_datetimes[-GROWTH_WINDOW_WEEKS:] if len(week_datetimes) >= GROWTH_WINDOW_WEEKS else week_datetimes
 
 
 def _last_row(pivot, keywords: list[str]) -> dict[str, float]:
@@ -73,6 +79,7 @@ def render_plots(
     mongo_db: str,
     out_dir: str,
     date_from: dt.date | None = None,
+    force: bool = False,
 ) -> dict:
     """Сервис 4: построить графики из агрегатов и данных БД.
 
@@ -109,6 +116,29 @@ def render_plots(
             results[dname] = {"plots": 0, "skipped": True}
             continue
 
+        if not force:
+            computed_at = agg.get("computed_at")
+            plots_rendered_at = agg.get("plots_rendered_at")
+            plots_ver = agg.get("plotter_version")
+            plots_fresh = (
+                plots_rendered_at is not None
+                and computed_at is not None
+                and plots_rendered_at >= computed_at
+                and plots_ver == PLOTTER_VERSION
+            )
+            if plots_fresh:
+                logger.info(
+                    "Домен '%s': графики актуальны (rendered_at=%s >= computed_at=%s, plot_v=%s), пропускаем",
+                    dname, plots_rendered_at.date(), computed_at.date(), plots_ver,
+                )
+                results[dname] = {"plots": 0, "skipped": True}
+                continue
+            if plots_rendered_at is not None and computed_at is not None and plots_ver != PLOTTER_VERSION:
+                logger.info(
+                    "Домен '%s': версия плоттера устарела (%s → %s), перерисовываем",
+                    dname, plots_ver, PLOTTER_VERSION,
+                )
+
         popular = agg.get("top_popular", [])
         growing = agg.get("top_growing", [])
         # growing_pct вычисляется ниже после pivot_pct
@@ -123,7 +153,12 @@ def render_plots(
             results[dname] = {"plots": 0, "skipped": True}
             continue
 
-        rows = store.get_counts_last_weeks(dname, week_datetimes)
+        gw = _growth_weeks(week_datetimes)
+        candidates = store.get_top_keyword_candidates(dname, gw, top_k=_CANDIDATES_K)
+        # ensure precomputed agg keywords are always included
+        agg_keywords = list(dict.fromkeys(popular + growing))
+        all_kws = list(dict.fromkeys(agg_keywords + candidates))
+        rows = store.get_counts_for_keywords(dname, week_datetimes, all_kws)
         df = to_frame(rows)
         pivot = pivot_week_keyword(df)
 
@@ -132,7 +167,7 @@ def render_plots(
         if _since is not None:
             art_counts = {k: v for k, v in art_counts.items() if k >= _since}
         art_counts = {k: v for k, v in art_counts.items() if k <= _before}
-        pivot_pct = pivot_week_keyword_pct(pivot, art_counts)
+        pivot_pct = pivot_week_keyword_pct(pivot, art_counts, score_scale=ACTIVE_EXTRACTOR.max_score)
         # Список растущих по %-доле считаем здесь, где pivot_pct уже готов
         growing_pct = top_growing_last_window(pivot_pct, GROWTH_WINDOW_WEEKS, TOP_N)
 
@@ -211,23 +246,53 @@ def render_plots(
                             growth_window_weeks=GROWTH_WINDOW_WEEKS, total_weeks=total_weeks,
                             styles=styles)
 
-        logger.info("  Графики сохранены → %s", base)
+        store.save_plots_rendered(dname, dt.datetime.now(dt.timezone.utc), PLOTTER_VERSION)
+        logger.info("  Графики сохранены → %s (plot_v=%s)", base, PLOTTER_VERSION)
         results[dname] = {"plots": 5, "skipped": False}
 
     # Суммарные графики по всем доменам
     agg_all = store.get_aggregated("_all")
     if agg_all:
+        if not force:
+            computed_at_all = agg_all.get("computed_at")
+            plots_rendered_at_all = agg_all.get("plots_rendered_at")
+            plots_ver_all = agg_all.get("plotter_version")
+            plots_fresh_all = (
+                plots_rendered_at_all is not None
+                and computed_at_all is not None
+                and plots_rendered_at_all >= computed_at_all
+                and plots_ver_all == PLOTTER_VERSION
+            )
+            if plots_fresh_all:
+                logger.info(
+                    "Суммарные графики актуальны (rendered_at=%s >= computed_at=%s, plot_v=%s), пропускаем",
+                    plots_rendered_at_all.date(), computed_at_all.date(), plots_ver_all,
+                )
+                results["_all"] = {"plots": 0, "skipped": True}
+                return results
+            if plots_rendered_at_all is not None and computed_at_all is not None and plots_ver_all != PLOTTER_VERSION:
+                logger.info(
+                    "Суммарные графики: версия плоттера устарела (%s → %s), перерисовываем",
+                    plots_ver_all, PLOTTER_VERSION,
+                )
+
         all_week_datetimes = store.get_all_week_starts()
         all_week_datetimes = [w.replace(tzinfo=None) if w.tzinfo is not None else w for w in all_week_datetimes]
         if _since is not None:
             all_week_datetimes = [w for w in all_week_datetimes if w >= _since]
         all_week_datetimes = [w for w in all_week_datetimes if w <= _before]
         if all_week_datetimes:
-            all_rows = store.get_counts_all_domains(all_week_datetimes)
-            all_df = to_frame(all_rows)
-            all_pivot = pivot_week_keyword(all_df)
             all_popular = agg_all.get("top_popular", [])
             all_growing = agg_all.get("top_growing", [])
+            # Candidates from pre-computed per-domain aggregates — avoids 24M-row scan
+            all_candidates = []
+            for dom_agg in store.get_all_aggregated():
+                all_candidates += dom_agg.get("top_popular", [])
+                all_candidates += dom_agg.get("top_growing", [])
+            all_kws = list(dict.fromkeys(all_popular + all_growing + all_candidates))
+            all_rows = store.get_counts_all_domains_for_keywords(all_week_datetimes, all_kws)
+            all_df = to_frame(all_rows)
+            all_pivot = pivot_week_keyword(all_df)
 
             base_all = Path(out_dir) / "plots" / "_all"
             base_all.mkdir(parents=True, exist_ok=True)
@@ -236,7 +301,7 @@ def render_plots(
             if _since is not None:
                 all_art_counts = {k: v for k, v in all_art_counts.items() if k >= _since}
             all_art_counts = {k: v for k, v in all_art_counts.items() if k <= _before}
-            all_pivot_pct = pivot_week_keyword_pct(all_pivot, all_art_counts)
+            all_pivot_pct = pivot_week_keyword_pct(all_pivot, all_art_counts, score_scale=ACTIVE_EXTRACTOR.max_score)
             all_growing_pct = top_growing_last_window(all_pivot_pct, GROWTH_WINDOW_WEEKS, TOP_N)
 
             all_ext_label = agg_all.get("extractor_key") or ACTIVE_EXTRACTOR_KEY
@@ -306,7 +371,8 @@ def render_plots(
                                 growth=all_growing_growth_pct, growth_short=all_growing_growth_pct_short,
                                 growth_window_weeks=GROWTH_WINDOW_WEEKS, total_weeks=all_total_weeks,
                                 styles=styles)
-            logger.info("  Суммарные графики сохранены → %s", base_all)
+            store.save_plots_rendered("_all", dt.datetime.now(dt.timezone.utc), PLOTTER_VERSION)
+            logger.info("  Суммарные графики сохранены → %s (plot_v=%s)", base_all, PLOTTER_VERSION)
             results["_all"] = {"plots": 5, "skipped": False}
     else:
         logger.warning("Суммарные агрегаты не найдены — запустите сначала скрипт 3.")
