@@ -66,6 +66,7 @@ arxiv_trends/
 │
 ├── docs/
 │   ├── startup_guide.md                 # Инструкция по запуску
+│   ├── deployment_new_server.md         # Миграция / развёртывание на новом сервере
 │   ├── project_structure.md             # Этот файл
 │   ├── db.md                            # MongoDB: схемы коллекций
 │   ├── diagnostics.md                   # Диагностика БД: команды и примеры

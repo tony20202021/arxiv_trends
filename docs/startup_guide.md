@@ -1,5 +1,7 @@
 # Руководство по запуску arXiv Trends
 
+> **Миграция на новый сервер** (перенос БД, .env, gensim, systemd) — см. [deployment_new_server.md](deployment_new_server.md).
+
 ## Быстрый старт (первый раз)
 
 ```bash
