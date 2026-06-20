@@ -6,6 +6,10 @@ from unittest.mock import MagicMock, patch, call
 import pandas as pd
 import pytest
 
+def _naive_dt(ws):
+    return ws.replace(tzinfo=None) if getattr(ws, "tzinfo", None) else ws
+
+
 # --- helpers ---
 
 def _make_domain(domain_id: str = "cs_lg") -> dict:
@@ -177,16 +181,32 @@ class TestRecomputePlots:
 
     def _make_store(self, *, latest_update=None, computed_at=None, week_datetimes=None, rows=None):
         store = MagicMock()
+        rows = rows or []
+        week_datetimes = week_datetimes or []
+        keywords = list(dict.fromkeys(r["keyword"] for r in rows))
+        art_counts = {_naive_dt(ws): 100 for ws in week_datetimes}
+
         store.get_latest_article_update.return_value = latest_update
         store.get_aggregated.return_value = (
-            {"computed_at": computed_at, "top_popular": ["transformer"], "top_growing": ["diffusion"]}
+            {
+                "computed_at": computed_at,
+                "top_popular": ["transformer"],
+                "top_growing": ["diffusion"],
+                "aggregator_version": 4,
+            }
             if computed_at else None
         )
-        store.col.distinct.return_value = week_datetimes or []
-        store.get_counts_last_weeks.return_value = rows or []
-        store.get_article_counts_by_week.return_value = {}
-        store.get_all_week_starts.return_value = week_datetimes or []
-        store.get_counts_all_domains.return_value = rows or []
+        store.col.distinct.return_value = week_datetimes
+        store.get_top_keyword_candidates.return_value = keywords
+        store.get_counts_for_keywords.return_value = rows
+        store.get_article_counts_by_week.return_value = art_counts
+        store.get_all_week_starts.return_value = week_datetimes
+        store.get_all_aggregated.return_value = [
+            {"domain": "cs_lg", "top_popular": ["transformer"], "top_growing": ["diffusion"],
+             "extractor_key": "30_ensemble"},
+        ]
+        store.get_counts_all_domains_for_keywords.return_value = rows
+        store.get_article_counts_all_domains.return_value = art_counts
         return store
 
     def _run(self, domains, store, force=False):
@@ -322,13 +342,23 @@ class TestRenderPlots:
 
     def _make_store(self, *, agg=None, week_datetimes=None, rows=None):
         store = MagicMock()
+        rows = rows or []
+        week_datetimes = week_datetimes or []
+        keywords = list(dict.fromkeys(r["keyword"] for r in rows))
+        art_counts = {_naive_dt(ws): 100 for ws in week_datetimes}
+
         store.get_aggregated.return_value = agg
-        store.col.distinct.return_value = week_datetimes or []
-        store.get_counts_last_weeks.return_value = rows or []
-        store.get_article_counts_by_week.return_value = {}
-        store.get_all_week_starts.return_value = week_datetimes or []
-        store.get_counts_all_domains.return_value = rows or []
-        store.get_article_counts_all_domains.return_value = {}
+        store.col.distinct.return_value = week_datetimes
+        store.get_top_keyword_candidates.return_value = keywords
+        store.get_counts_for_keywords.return_value = rows
+        store.get_article_counts_by_week.return_value = art_counts
+        store.get_all_week_starts.return_value = week_datetimes
+        store.get_counts_all_domains_for_keywords.return_value = rows
+        store.get_article_counts_all_domains.return_value = art_counts
+        store.get_all_aggregated.return_value = [
+            {"domain": "cs_lg", "top_popular": ["transformer"], "top_growing": ["diffusion"],
+             "extractor_key": "30_ensemble"},
+        ]
         return store
 
     def _run(self, domains, store, tmp_path):
@@ -347,7 +377,7 @@ class TestRenderPlots:
         store = self._make_store(agg=None)
         results, store = self._run([_make_domain()], store, tmp_path)
         assert results["cs_lg"]["skipped"] is True
-        store.get_counts_last_weeks.assert_not_called()
+        store.get_counts_for_keywords.assert_not_called()
 
     def test_skips_domain_without_keyword_counts(self, tmp_path):
         store = self._make_store(
@@ -477,13 +507,19 @@ class TestExtractKeywordsBatch:
 
     _WS_DT = dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc)
 
-    def _run(self, articles_batches):
+    def _run(self, articles_batches, *, old_version_present=False):
         store = MagicMock()
-        # count called once per round + final 0 to stop; each batch is one round
-        counts = [len(b) for b in articles_batches] + [0]
+        batch_lens = [len(b) for b in articles_batches]
+        if old_version_present and batch_lens:
+            # count до reset + count после reset + финальный 0
+            counts = batch_lens + batch_lens + [0]
+        else:
+            counts = batch_lens + [0]
         store.count_articles_for_extraction.side_effect = counts
-        # get_articles_for_extraction yields each batch then empty list per round
         store.get_articles_for_extraction.side_effect = [b for b in articles_batches] + [[]]
+        store.has_articles_with_old_version.return_value = old_version_present
+        store.delete_week_counts_for_weeks.return_value = 0
+        store.reset_article_keywords.return_value = 0
 
         with patch("extract.MongoStore", return_value=store):
             from pipeline import extract_keywords_batch
@@ -523,10 +559,11 @@ class TestExtractKeywordsBatch:
     def test_subtracts_old_counts_on_version_upgrade(self):
         old_kws = {"old_term": 3}
         art = self._make_article("2401.00001", keywords=old_kws, version=0)
-        stats, store = self._run([[art]])
-        # upsert called twice: subtract old, add new
+        stats, store = self._run([[art]], old_version_present=True)
+        store.reset_article_keywords.assert_called_once()
+        store.delete_week_counts_for_weeks.assert_called_once()
+        # mock-статья всё ещё с keywords → subtract старых + add новых
         assert store.upsert_week_counts.call_count == 2
-        # first call subtracts (negative values)
         first_counts = store.upsert_week_counts.call_args_list[0][0][2]
         assert all(v < 0 for v in first_counts.values())
 
@@ -598,14 +635,20 @@ class TestDateFromFiltering:
             "computed_at": dt.datetime(2023, 1, 1, tzinfo=dt.timezone.utc),
             "top_popular": ["transformer"],
             "top_growing": ["diffusion"],
-            "extractor_key": "1_count_stopwords",
+            "extractor_key": "30_ensemble",
+            "aggregator_version": 4,
         }
         store.col.distinct.return_value = week_datetimes
-        store.get_counts_last_weeks.return_value = []
+        store.get_top_keyword_candidates.return_value = ["transformer", "diffusion"]
+        store.get_counts_for_keywords.return_value = []
         store.get_all_week_starts.return_value = week_datetimes
-        store.get_counts_all_domains.return_value = []
-        store.get_article_counts_by_week.return_value = {}
-        store.get_article_counts_all_domains.return_value = {}
+        store.get_counts_all_domains_for_keywords.return_value = []
+        store.get_article_counts_by_week.return_value = {ws: 100 for ws in week_datetimes}
+        store.get_article_counts_all_domains.return_value = {_naive_dt(ws): 100 for ws in week_datetimes}
+        store.get_all_aggregated.return_value = [
+            {"domain": "cs_lg", "top_popular": ["transformer"], "top_growing": ["diffusion"],
+             "extractor_key": "30_ensemble"},
+        ]
         return store
 
     def test_recompute_aggregates_filters_old_weeks(self):
@@ -650,8 +693,8 @@ class TestDateFromFiltering:
                 out_dir=str(tmp_path),
                 date_from=cutoff,
             )
-        # get_counts_last_weeks должен получить только одну неделю (_WS_NEW)
-        call_args = store.get_counts_last_weeks.call_args
-        weeks_passed = call_args[0][1]  # второй позиционный аргумент
+        # get_counts_for_keywords должен получить только одну неделю (_WS_NEW)
+        call_args = store.get_counts_for_keywords.call_args
+        weeks_passed = call_args[0][1]  # week_datetimes
         assert self._WS_OLD not in weeks_passed
         assert self._WS_NEW in weeks_passed

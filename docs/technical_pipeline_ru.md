@@ -58,7 +58,10 @@ arXiv API (Atom)
 **`config/constants.py`** — все числовые параметры:
 - `HISTORY_WEEKS = 52` — глубина истории (1 год)
 - `TOP_N = 5` — количество ключевых слов на графике
-- `GROWTH_WINDOW_WEEKS = 10` — окно для расчёта тренда роста
+- `GROWTH_WINDOW_WEEKS = 24` — окно для расчёта тренда роста
+- `MAX_KEYWORD_DF_PCT = 40.0` — отсечение терминов, встречающихся в >40% статей недели
+- `MIN_KEYWORD_PCT = 0.25` — минимальная доля статей для «популярных»
+- `AGGREGATOR_VERSION = 4` — ранжирование топов по pct (доля статей), не raw count
 - `ARXIV_PAGE_SIZE = 200` — размер страницы при запросе к API
 - `ARXIV_MAX_OFFSET = 30000` — максимальный `start` по документации arXiv
 - `ARXIV_OFFSET_LIMIT = 9800` — фактический лимит (arXiv возвращает 500 при start≥10000)
@@ -91,16 +94,19 @@ arXiv API (Atom)
 
 | Ключ | DB ID | Алгоритм | Статус |
 |---|---|---|---|
-| `1_count_stopwords` | 1 | Regex + лемматизация + стоп-слова | **активный** |
-| `2_llm` | 2 | LLM (OpenAI-совместимый, `USE_LLM_EXTRACTOR=1`) | готов |
-| `3_tfidf_sklearn` | 3 | Per-doc TF-IDF с биграммами (scikit-learn) | реализован |
-| `4_tfidf_gensim` | 4 | TF-IDF (gensim) | заготовка |
-| `5_keybert` | 5 | KeyBERT (sentence-transformers) | заготовка |
-| `6_yake` | 6 | YAKE (статистический) | реализован |
+| `1_count_stopwords` | 1 | Regex + лемматизация + стоп-слова | реализован |
+| `2_llm` | 2 | LLM (`USE_LLM_EXTRACTOR=1`) | готов |
+| `3_tfidf_sklearn` | 3 | Per-doc биграммы (sklearn) | реализован |
+| `4_tfidf_gensim` | 4 | Corpus TF-IDF (gensim, `scripts/train_gensim_model.py`) | реализован |
+| `7_yake` | 7 | YAKE trigrams | реализован |
+| `9_keybert` | 9 | KeyBERT (`USE_KEYBERT=0` чтобы выключить) | реализован |
+| `11_yake` | 11 | YAKE, dedupLim=0.5 | реализован |
+| `20_ensemble` | 20 | v1+v3+v11 (legacy) | реализован |
+| **`30_ensemble`** | **30** | **v1+v3+v4+v9+v11 + пост-нормализация** | **активный** |
 
 **Смена алгоритма** — одна строка в `registry.py`:
 ```python
-ACTIVE_EXTRACTOR_KEY = "1_count_stopwords"  # изменить здесь
+ACTIVE_EXTRACTOR_KEY = "30_ensemble"  # активный
 ```
 При смене DB ID возрастает → Сервис 2 автоматически перепроцессирует все статьи.
 
@@ -116,6 +122,34 @@ ACTIVE_EXTRACTOR_KEY = "1_count_stopwords"  # изменить здесь
 - Вызов OpenAI-совместимого API
 - Структурированный вывод через Pydantic (`KeywordList`)
 - Возвращает `None` если `USE_LLM_EXTRACTOR != 1`
+
+**`keywords/gensim_extractor.py`** — алгоритм v4 (corpus TF-IDF):
+- Модель хранится в `.outputs/models/gensim/` (`dictionary.gensim`, `tfidf.gensim`)
+- Обучение offline: `python scripts/train_gensim_model.py --limit 80000`
+- Если файлов модели нет — v4 возвращает `{}`, ансамбль v30 работает без gensim-ветки
+
+#### Когда переобучать gensim
+
+Каждый успешный прогон `train_gensim_model.py` **увеличивает `gensim_model_version`** в `.outputs/models/gensim/meta.json`. Backend-2 автоматически пересчитывает keywords у статей, где `gensim_model_version` устарела (без смены `keyword_extractor_version` / db_id=30).
+
+| Ситуация | Действие |
+|---|---|
+| Первый запуск / нет `.outputs/models/gensim/` | Обучить: `--limit 80000` → version=1 |
+| Регулярное обслуживание | Раз в **1–2 месяца** или после **+20–30k** новых статей |
+| Изменили `STOPWORDS_EN` или `TOKEN_PATTERN` | Переобучить (version++ → re-extract) |
+| Максимальное качество IDF | `--limit 250000` |
+| Идёт массовый re-extract (Backend-2 нагружен) | **Отложить** обучение |
+
+После переобучения:
+1. `meta.json` уже содержит новый `version` — перезапуск Backend-2 не обязателен
+2. Extract подхватит статьи с `gensim_model_version ≠ новая` при следующем hourly-прогоне
+3. Для каждой такой статьи старые counts **вычитаются**, новые записываются (без полного сброса домена)
+
+Проверка:
+```bash
+cat .outputs/models/gensim/meta.json
+python scripts/0_check_db.py size
+```
 
 ---
 

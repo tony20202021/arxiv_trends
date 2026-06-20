@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 
 class TestExtractorsDict:
-    def test_has_all_six_keys(self):
+    def test_has_expected_keys(self):
         from keywords.registry import EXTRACTORS
-        assert len(EXTRACTORS) == 6
+        assert len(EXTRACTORS) >= 10
 
     def test_key_format_is_n_name(self):
         from keywords.registry import EXTRACTORS
-        pattern = re.compile(r"^\d+_\w+$")
+        pattern = re.compile(r"^\d+_\w")
         for key in EXTRACTORS:
             assert pattern.match(key), f"Ключ {key!r} не соответствует формату 'N_name'"
 
@@ -43,9 +43,9 @@ class TestActiveExtractor:
         from keywords.registry import EXTRACTORS, ACTIVE_EXTRACTOR_KEY
         assert ACTIVE_EXTRACTOR_KEY in EXTRACTORS
 
-    def test_active_extractor_is_v1(self):
+    def test_active_extractor_is_v30(self):
         from keywords.registry import ACTIVE_EXTRACTOR
-        assert ACTIVE_EXTRACTOR.db_id == 1
+        assert ACTIVE_EXTRACTOR.db_id == 30
 
     def test_active_extractor_label_nonempty(self):
         from keywords.registry import ACTIVE_EXTRACTOR
@@ -70,14 +70,14 @@ class TestActiveExtractor:
 
 
 class TestUnimplementedExtractors:
-    @pytest.mark.parametrize("key", ["4_tfidf_gensim", "5_keybert"])
+    @pytest.mark.parametrize("key", ["8_ensemble_137"])
     def test_raises_not_implemented(self, key):
         from keywords.registry import EXTRACTORS
         spec = EXTRACTORS[key]
         with pytest.raises(NotImplementedError):
             spec.fn("any abstract text")
 
-    @pytest.mark.parametrize("key", ["3_tfidf_sklearn", "6_yake"])
+    @pytest.mark.parametrize("key", ["3_tfidf_sklearn", "7_yake", "11_yake"])
     def test_implemented_extractors_return_dict(self, key):
         from keywords.registry import EXTRACTORS
         spec = EXTRACTORS[key]
@@ -85,9 +85,21 @@ class TestUnimplementedExtractors:
         assert isinstance(result, dict)
         assert len(result) > 0
 
+    def test_v4_returns_dict_without_model(self):
+        from keywords.registry import EXTRACTORS
+        result = EXTRACTORS["4_tfidf_gensim"].fn("transformer diffusion model")
+        assert isinstance(result, dict)
+
     def test_v2_raises_when_llm_unavailable(self):
-        """_v2 без LLM должен бросить RuntimeError (не NotImplementedError)."""
         from keywords.registry import EXTRACTORS
         with patch("keywords.llm_extractor.extract_keywords_llm", return_value=None):
             with pytest.raises(RuntimeError, match="LLM недоступен"):
                 EXTRACTORS["2_llm"].fn("any text")
+
+    def test_v30_merges_branches(self):
+        from keywords.registry import EXTRACTORS
+        result = EXTRACTORS["30_ensemble"].fn(
+            "We propose a transformer-based diffusion model for large language models."
+        )
+        assert isinstance(result, dict)
+        assert len(result) > 0

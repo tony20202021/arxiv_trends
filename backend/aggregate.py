@@ -105,9 +105,18 @@ def recompute_aggregates(
         rows = store.get_counts_for_keywords(dname, week_datetimes, candidates)
         df = to_frame(rows)
         pivot = pivot_week_keyword(df)
+        art_counts = store.get_article_counts_by_week(dname)
 
-        popular = top_popular_now(pivot, TOP_N)
-        growing = top_growing_last_window(pivot, GROWTH_WINDOW_WEEKS, TOP_N)
+        popular = top_popular_now(
+            pivot, TOP_N,
+            article_counts=art_counts,
+            score_scale=ACTIVE_EXTRACTOR.max_score,
+        )
+        growing = top_growing_last_window(
+            pivot, GROWTH_WINDOW_WEEKS, TOP_N,
+            article_counts=art_counts,
+            score_scale=ACTIVE_EXTRACTOR.max_score,
+        )
 
         store.save_aggregated(
             domain=dname,
@@ -159,9 +168,18 @@ def recompute_aggregates(
         logger.info("  Загружено %d строк, строю pivot...", len(all_rows))
         all_df = to_frame(all_rows)
         all_pivot = pivot_week_keyword(all_df)
+        all_art_counts = store.get_article_counts_all_domains()
         logger.info("  Pivot готов (%d недель × %d слов), считаю топ...", *all_pivot.shape)
-        all_popular = top_popular_now(all_pivot, TOP_N)
-        all_growing = top_growing_last_window(all_pivot, GROWTH_WINDOW_WEEKS, TOP_N)
+        all_popular = top_popular_now(
+            all_pivot, TOP_N,
+            article_counts=all_art_counts,
+            score_scale=ACTIVE_EXTRACTOR.max_score,
+        )
+        all_growing = top_growing_last_window(
+            all_pivot, GROWTH_WINDOW_WEEKS, TOP_N,
+            article_counts=all_art_counts,
+            score_scale=ACTIVE_EXTRACTOR.max_score,
+        )
         store.save_aggregated(
             domain="_all",
             computed_at=dt.datetime.now(dt.timezone.utc),

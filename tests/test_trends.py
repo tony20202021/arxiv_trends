@@ -77,8 +77,26 @@ class TestTopPopularNow:
         df = to_frame(rows)
         pivot = pivot_week_keyword(df)
         result = top_popular_now(pivot, top_n=3)
-        # "attention" (i=2) имеет наибольший count на последней неделе
         assert result[0] == "attention"
+
+    def test_popular_by_pct_filters_generic(self):
+        """Высокий raw count, но низкий pct — не должен побеждать."""
+        ws = dt.datetime(2024, 6, 1, tzinfo=dt.timezone.utc)
+        rows = [
+            {"domain": "cs_lg", "week_start": ws, "keyword": "generic", "count": 1000},
+            {"domain": "cs_lg", "week_start": ws, "keyword": "mamba", "count": 50},
+        ]
+        df = to_frame(rows)
+        pivot = pivot_week_keyword(df)
+        art_counts = {ws: 1000}
+        result = top_popular_now(
+            pivot, top_n=1,
+            article_counts=art_counts,
+            score_scale=1,
+            max_df_pct=40.0,
+            min_pct=0.0,
+        )
+        assert result[0] == "mamba"
 
 
 class TestTopGrowingLastWindow:

@@ -92,6 +92,17 @@ python scripts/run_scheduler.py --step 3 --run-once
 | `start_6_web.sh` | Веб-дашборд (FastAPI) с авто-перезапуском |
 | `start_7_tunnel.sh` | Cloudflare Tunnel — публичный HTTPS-доступ к дашборду |
 | `run_tests.sh` | Запустить тесты |
+| `train_gensim_model.py` | Обучить gensim TF-IDF для v4 (см. ниже) |
+
+### Переобучение gensim (v4)
+
+```bash
+python scripts/train_gensim_model.py --limit 80000
+```
+
+**Когда запускать:** при первом деплое; затем раз в 1–2 месяца или после +20–30k новых статей; после изменения `STOPWORDS_EN` / `TOKEN_PATTERN`. Каждый прогон увеличивает `gensim_model_version` → Backend-2 автоматически re-extract затронутых статей.
+
+Подробнее — раздел «Когда переобучать gensim» в [technical_pipeline_ru.md](technical_pipeline_ru.md).
 
 ### Аргументы run_scheduler.py (вызывается через sh-скрипты)
 

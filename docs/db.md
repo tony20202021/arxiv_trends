@@ -13,6 +13,7 @@
 | `fetched_at` | datetime UTC | Время загрузки |
 | `keywords` | dict \| null | Извлечённые ключевые слова `{word: count}` |
 | `keyword_extractor_version` | int \| null | Версия алгоритма экстрактора |
+| `gensim_model_version` | int \| null | Версия corpus TF-IDF модели (v4/v30); при переобучении gensim Backend-2 re-extract |
 | `updated_at` | datetime UTC \| null | Время последнего обновления keywords Сервисом 2 |
 
 Индексы:

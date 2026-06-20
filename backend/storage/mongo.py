@@ -374,14 +374,29 @@ class MongoStore:
         )
         return result.modified_count
 
-    def _extraction_query(self, domain: str, week_starts: List[dt.datetime], extractor_version: int) -> dict:
+    def _extraction_query(
+        self,
+        domain: str,
+        week_starts: List[dt.datetime],
+        extractor_version: int,
+        gensim_model_version: int | None = None,
+    ) -> dict:
+        or_clauses: list[dict] = [
+            {"keyword_extractor_version": None},
+            {"keyword_extractor_version": {"$lt": extractor_version}},
+        ]
+        if gensim_model_version is not None and gensim_model_version > 0:
+            or_clauses.append({
+                "keyword_extractor_version": extractor_version,
+                "$or": [
+                    {"gensim_model_version": {"$exists": False}},
+                    {"gensim_model_version": {"$ne": gensim_model_version}},
+                ],
+            })
         return {
             "domain": domain,
             "week_start": {"$in": week_starts},
-            "$or": [
-                {"keyword_extractor_version": None},
-                {"keyword_extractor_version": {"$lt": extractor_version}},
-            ],
+            "$or": or_clauses,
         }
 
     def count_articles_for_extraction(
@@ -389,10 +404,11 @@ class MongoStore:
         domain: str,
         week_starts: List[dt.datetime],
         extractor_version: int,
+        gensim_model_version: int | None = None,
     ) -> int:
         """Количество статей ожидающих извлечения ключевых слов."""
         return self.articles.count_documents(
-            self._extraction_query(domain, week_starts, extractor_version)
+            self._extraction_query(domain, week_starts, extractor_version, gensim_model_version)
         )
 
     def get_articles_for_extraction(
@@ -401,10 +417,11 @@ class MongoStore:
         week_starts: List[dt.datetime],
         extractor_version: int,
         batch_size: int = 100,
+        gensim_model_version: int | None = None,
     ) -> List[dict]:
-        """Статьи у которых нет ключевых слов или версия экстрактора устарела."""
+        """Статьи у которых нет ключевых слов или версия экстрактора/gensim устарела."""
         return list(self.articles.find(
-            self._extraction_query(domain, week_starts, extractor_version),
+            self._extraction_query(domain, week_starts, extractor_version, gensim_model_version),
             {"arxiv_id": 1, "abstract": 1, "week_start": 1, "keywords": 1},
         ).limit(batch_size))
 
@@ -414,15 +431,19 @@ class MongoStore:
         domain: str,
         keywords: Dict[str, int],
         extractor_version: int,
+        gensim_model_version: int | None = None,
     ) -> None:
         """Записать ключевые слова для статьи."""
+        update: dict = {
+            "keywords": keywords,
+            "keyword_extractor_version": extractor_version,
+            "updated_at": dt.datetime.now(dt.timezone.utc),
+        }
+        if gensim_model_version is not None:
+            update["gensim_model_version"] = gensim_model_version
         self.articles.update_one(
             {"arxiv_id": arxiv_id, "domain": domain},
-            {"$set": {
-                "keywords": keywords,
-                "keyword_extractor_version": extractor_version,
-                "updated_at": dt.datetime.now(dt.timezone.utc),
-            }},
+            {"$set": update},
         )
 
     def get_article_counts_by_week(self, domain: str) -> Dict[dt.datetime, int]:

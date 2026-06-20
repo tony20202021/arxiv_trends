@@ -8,10 +8,14 @@ ARTICLES_TTL_DAYS = 730    # статьи старше этого числа д�
 TOP_N = 5                  # топ-N для графиков
 GROWTH_WINDOW_WEEKS = 24    # окно роста (в неделях)
 
+# Агрегатор: ранжирование по доле статей (pct), отсечение «универсального» мусора
+MAX_KEYWORD_DF_PCT = 40.0   # термин в >N% статей недели → не попадает в топ
+MIN_KEYWORD_PCT = 0.25      # минимальная доля статей (%) для «популярных»
+
 # Версия логики агрегатора (постпроцессинг, нормировка, дедуп).
 # Увеличить на 1 при любом изменении aggregate.py / trends.py — пересчёт произойдёт
 # автоматически без --force, даже если данные в БД не менялись.
-AGGREGATOR_VERSION = 2  # bump → пересчёт агрегатов без --force
+AGGREGATOR_VERSION = 4  # bump → пересчёт агрегатов без --force
 
 # Версия логики построения графиков (новые типы, стиль, окна).
 # Увеличить на 1 при любом изменении plot_service.py / plotter.py — перерисовка
@@ -26,7 +30,7 @@ ARXIV_BATCH_SLEEP_SEC = 2.0     # пауза между батчами обра�
 REQUEST_SLEEP_SEC = 3.0         # пауза между запросами к API (рекомендация arXiv — 3 сек)
 
 # --- Извлечение ключевых слов ---
-TOKEN_PATTERN = r"[a-zA-Z][a-zA-Z0-9\-]{2,}"  # слова 3+ символов, допускает дефис
+TOKEN_PATTERN = r"[a-zA-Z][a-zA-Z0-9\-]{2,}"  # слова 3+ символов; дефис внутри слова
 MIN_TOKEN_LEN = 3
 
 STOPWORDS_EN: frozenset = frozenset({
@@ -55,5 +59,18 @@ STOPWORDS_EN: frozenset = frozenset({
     "study", "setting", "time", "achieve", "improve", "consider",
     # незначимые для тематического анализа (из анализа топ-20)
     "enable", "real", "multi", "fine", "non", "sample",
+    # generic ML/NLP (часто в топе, мало информативны для трендов)
+    "learning", "train", "training", "learn", "learned",
+    "framework", "benchmark", "benchmarks", "analysis",
+    "propose", "proposes", "proposed", "proposing",
+    "show", "shows", "demonstrate", "demonstrates", "demonstrated",
+    "achieve", "achieves", "achieved", "improve", "improves", "improved",
+    "effective", "efficient", "efficiency", "accuracy", "robust", "robustness",
+    "novel", "powerful", "simple", "general", "specific", "important",
+    "challenging", "challenge", "challenges", "limitation", "limitations",
+    "contribution", "contributions", "application", "applications",
+    "domain", "domains", "field", "area", "areas",
+    "system", "systems", "process", "processes",
+    "information", "knowledge", "understanding",
 })
 

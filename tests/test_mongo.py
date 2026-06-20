@@ -230,10 +230,18 @@ class TestMongoStoreGetArticlesForExtraction:
         )
         assert lt_clause["keyword_extractor_version"]["$lt"] == 2
 
-    def test_respects_batch_size(self):
+    def test_includes_stale_gensim_clause(self):
         store = _make_store()
-        _, mock_cursor = self._query_from_find(store, batch_size=25)
-        mock_cursor.limit.assert_called_with(25)
+        query, _ = self._query_from_find(store, version=30)
+        store.get_articles_for_extraction(
+            "cs_lg", [self._WS], extractor_version=30, gensim_model_version=2,
+        )
+        query = _mock_articles.find.call_args[0][0]
+        gensim_clause = next(
+            c for c in query["$or"]
+            if c.get("keyword_extractor_version") == 30
+        )
+        assert "$or" in gensim_clause
 
 
 class TestMongoStoreCountArticlesForExtraction:
@@ -266,13 +274,32 @@ class TestMongoStoreSaveArticleKeywords:
         assert update_doc["$set"]["keywords"] == {"transformer": 5}
         assert update_doc["$set"]["keyword_extractor_version"] == 1
 
+    def test_sets_gensim_model_version_when_provided(self):
+        store = _make_store()
+        store.save_article_keywords(
+            "2401.00001", "cs_lg", {"transformer": 5}, extractor_version=30, gensim_model_version=2,
+        )
+        update_doc = _mock_articles.update_one.call_args[0][1]
+        assert update_doc["$set"]["gensim_model_version"] == 2
+
     def test_sets_updated_at(self):
         store = _make_store()
         store.save_article_keywords("2401.00001", "cs_lg", {"transformer": 5}, extractor_version=1)
         update_doc = _mock_articles.update_one.call_args[0][1]
         assert "updated_at" in update_doc["$set"]
-        import datetime as dt
         assert isinstance(update_doc["$set"]["updated_at"], dt.datetime)
+
+
+class TestMongoStoreGetArticlesForExtractionBatch:
+    _WS = dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc)
+
+    def test_respects_batch_size(self):
+        store = _make_store()
+        mock_cursor = MagicMock()
+        mock_cursor.limit.return_value = []
+        _mock_articles.find.return_value = mock_cursor
+        store.get_articles_for_extraction("cs_lg", [self._WS], extractor_version=2, batch_size=25)
+        mock_cursor.limit.assert_called_with(25)
 
 
 class TestMongoStoreGetArticleCountsByWeek:

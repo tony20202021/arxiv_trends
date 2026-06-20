@@ -10,10 +10,15 @@ arxiv_trends/
 │   ├── analytics/
 │   │   └── trends.py                    # to_frame, pivot, pivot_week_keyword_pct, top_popular, top_growing
 │   ├── keywords/
-│   │   ├── registry.py                  # Реестр алгоритмов (6 версий); ACTIVE_EXTRACTOR_KEY
-│   │   ├── extractor.py                 # Алгоритм v1: regex + лемматизация + стоп-слова
-│   │   ├── llm_extractor.py             # Алгоритм v2: LLM (USE_LLM_EXTRACTOR=1)
-│   │   └── normalizer.py                # Лемматизация через spaCy (scispacy → en_core_web_sm)
+│   ├── keywords/
+│   │   ├── registry.py                  # Реестр алгоритмов; ACTIVE_EXTRACTOR_KEY=30_ensemble
+│   │   ├── extractor.py                 # v1: regex + лемматизация + стоп-слова
+│   │   ├── llm_extractor.py             # v2: LLM
+│   │   ├── gensim_extractor.py          # v4: corpus TF-IDF
+│   │   ├── keybert_extractor.py         # v9: KeyBERT
+│   │   ├── ensemble.py                  # merge веток ансамбля
+│   │   ├── canonical.py                 # синонимы (llm ↔ large language model)
+│   │   └── normalizer.py                # лемматизация + пост-нормализация (scispacy → web_sm)
 │   ├── llm/
 │   │   └── client.py                    # OpenAI-совместимый LLM-клиент
 │   ├── plots/
@@ -91,6 +96,7 @@ arxiv_trends/
 │   ├── 4_render_plots.py                # Разовый запуск Сервиса 3 (plots + JSON-сайдкары)
 │   ├── 5_cleanup_old_data.py            # Очистка старых данных из БД
 │   ├── 6_compare_domains.py             # Сравнение доменов: топ слов и тренды
+│   ├── train_gensim_model.py            # Обучение gensim TF-IDF на abstracts (v4); см. technical_pipeline_ru.md § gensim
 │   └── run_scheduler.py                 # Планировщик: --step 1|2|3, бесконечный цикл с circuit breaker
 │
 ├── sh/                                  # Bash-скрипты запуска
