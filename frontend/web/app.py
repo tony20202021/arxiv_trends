@@ -9,10 +9,10 @@
 Запуск:
     python frontend/web/app.py
     # или через uvicorn:
-    uvicorn frontend.web.app:app --host 0.0.0.0 --port 8000 --reload
+    uvicorn frontend.web.app:app --host 0.0.0.0 --port 8643 --reload
 
 Открыть в браузере:
-    http://localhost:8000
+    http://localhost:8643
 """
 from __future__ import annotations
 import datetime as dt
@@ -74,7 +74,7 @@ def _print_urls(host: str, port: str) -> None:
 async def _lifespan(app: FastAPI):
     _print_urls(
         os.environ.get("WEB_HOST", "127.0.0.1"),
-        os.environ.get("WEB_PORT", "8000"),
+        os.environ.get("WEB_PORT", "8643"),
     )
     yield
 
@@ -169,6 +169,6 @@ def health() -> dict:
 if __name__ == "__main__":
     import uvicorn
     host = os.environ.get("WEB_HOST", "127.0.0.1")
-    port = int(os.environ.get("WEB_PORT", "8000"))
+    port = int(os.environ.get("WEB_PORT", "8643"))
     uvicorn.run("app:app", host=host, port=port, reload=True,
                 app_dir=str(_here))

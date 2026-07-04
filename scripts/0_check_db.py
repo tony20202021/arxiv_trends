@@ -27,7 +27,7 @@ from utils.diagnostics import print_coverage, print_top_keywords, print_latest, 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Диагностика БД")
-    ap.add_argument("--uri",   default=os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017"))
+    ap.add_argument("--uri",   default=os.environ.get("MONGO_URI", "mongodb://127.0.0.1:8627"))
     ap.add_argument("--db",    default=os.environ.get("MONGO_DB",  "arxiv_trends"))
     sub = ap.add_subparsers(dest="cmd")
 

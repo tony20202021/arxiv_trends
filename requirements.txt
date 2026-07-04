@@ -15,6 +15,7 @@ python-slugify>=8.0.0
 # Telegram-бот (фронтенд)
 python-telegram-bot>=21.0.0
 watchfiles>=0.21.0          # авто-перезапуск при изменении файлов
+psutil>=5.9.0               # системная статистика для /status
 
 # Веб-дашборд (фронтенд)
 fastapi>=0.110.0

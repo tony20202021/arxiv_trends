@@ -14,7 +14,7 @@ if [ -f ".env" ]; then
 fi
 CONDA_ENV="${CONDA_ENV:-conda_arxive_trends}"
 HOST="${WEB_HOST:-${_WEB_HOST:-127.0.0.1}}"
-PORT="${WEB_PORT:-${_WEB_PORT:-8000}}"
+PORT="${WEB_PORT:-${_WEB_PORT:-8643}}"
 SSL_CERT="${SSL_CERT:-$PROJECT_DIR/ssl/cert.pem}"
 SSL_KEY="${SSL_KEY:-$PROJECT_DIR/ssl/key.pem}"
 

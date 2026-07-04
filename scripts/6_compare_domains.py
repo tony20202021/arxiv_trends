@@ -125,7 +125,7 @@ def main() -> None:
 
     domains = load_domains(args.domains_file, args.domains)
 
-    mongo_uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
+    mongo_uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:8627")
     mongo_db  = os.environ.get("MONGO_DB",  "arxiv_trends")
     store = MongoStore(mongo_uri, mongo_db)
 

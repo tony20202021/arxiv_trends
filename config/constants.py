@@ -15,7 +15,7 @@ MIN_KEYWORD_PCT = 0.25      # минимальная доля статей (%) �
 # Версия логики агрегатора (постпроцессинг, нормировка, дедуп).
 # Увеличить на 1 при любом изменении aggregate.py / trends.py — пересчёт произойдёт
 # автоматически без --force, даже если данные в БД не менялись.
-AGGREGATOR_VERSION = 4  # bump → пересчёт агрегатов без --force
+AGGREGATOR_VERSION = 6  # bump → пересчёт агрегатов без --force
 
 # Версия логики построения графиков (новые типы, стиль, окна).
 # Увеличить на 1 при любом изменении plot_service.py / plotter.py — перерисовка
@@ -72,5 +72,14 @@ STOPWORDS_EN: frozenset = frozenset({
     "domain", "domains", "field", "area", "areas",
     "system", "systems", "process", "processes",
     "information", "knowledge", "understanding",
+    # местоимения / наречия / предлоги — проскальзывали в top_growing
+    "same", "rather", "what", "some", "just", "very", "most", "many",
+    "less", "much", "even", "still", "any", "few", "due", "per",
+    "given", "since", "after", "before", "like", "seem", "seems",
+    "able", "certain", "similar", "particular", "those", "does",
+    "every", "single",
+    # generic глаголы в ML-текстах (часты, но не несут тематического смысла)
+    "enhance", "leverage", "offer", "require", "include", "reduce",
+    "consider", "focus", "rely", "involve", "extend", "allow",
 })
 

@@ -31,7 +31,7 @@ _mc.BulkOperationBuilder.add_update = _patched_add_update
 def store():
     """MongoStore поверх mongomock — без реального MongoDB."""
     with patch("storage.mongo.MongoClient", mongomock.MongoClient):
-        s = MongoStore("mongodb://localhost:27017", "test_db")
+        s = MongoStore("mongodb://localhost:8627", "test_db")
     yield s
 
 

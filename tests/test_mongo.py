@@ -26,7 +26,7 @@ _mock_db.__getitem__ = MagicMock(side_effect=lambda name: _COLLECTION_MAP.get(na
 def _make_store():
     with patch("storage.mongo.MongoClient", return_value=_mock_client):
         from storage.mongo import MongoStore
-        store = MongoStore("mongodb://localhost:27017", "test_db")
+        store = MongoStore("mongodb://localhost:8627", "test_db")
     return store
 
 

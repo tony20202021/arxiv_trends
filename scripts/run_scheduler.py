@@ -217,7 +217,7 @@ def main():
     signal.signal(signal.SIGTERM, _handle_signal)
 
     domains = json.loads(Path(args.domains).read_text(encoding="utf-8"))
-    mongo_uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
+    mongo_uri = os.environ.get("MONGO_URI", "mongodb://localhost:8627")
     mongo_db = os.environ.get("MONGO_DB", "arxiv_trends")
     api_url = os.environ.get("ARXIV_API_URL", "https://export.arxiv.org/api/query")
     user_agent = os.environ.get("HTTP_USER_AGENT", "arxiv-trends-bot/0.1")

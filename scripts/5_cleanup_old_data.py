@@ -100,7 +100,7 @@ def cleanup(mongo_uri: str, mongo_db: str, ttl_days: int, dry_run: bool) -> None
 def main() -> None:
     _setup_logging()
     ap = argparse.ArgumentParser(description="Очистка устаревших данных из MongoDB")
-    ap.add_argument("--uri",      default=os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017"))
+    ap.add_argument("--uri",      default=os.environ.get("MONGO_URI", "mongodb://127.0.0.1:8627"))
     ap.add_argument("--db",       default=os.environ.get("MONGO_DB", "arxiv_trends"))
     ap.add_argument("--ttl-days", type=int, default=ARTICLES_TTL_DAYS, dest="ttl_days",
                     help=f"Удалить статьи старше N дней (по умолчанию: {ARTICLES_TTL_DAYS} из constants.py)")

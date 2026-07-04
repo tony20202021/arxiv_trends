@@ -10,7 +10,7 @@ cd "$PROJECT_DIR"
 if [ -f ".env" ]; then
     _WEB_PORT=$(grep -m1 "^WEB_PORT=" .env | cut -d'=' -f2-)
 fi
-PORT="${WEB_PORT:-${_WEB_PORT:-8300}}"
+PORT="${WEB_PORT:-${_WEB_PORT:-8643}}"
 TUNNEL_URL_FILE="$PROJECT_DIR/.outputs/.tunnel_url"
 mkdir -p "$PROJECT_DIR/.outputs"
 

@@ -67,7 +67,7 @@ def _load_domains_info(domain_slugs: list[str]) -> dict[str, dict]:
     empty = {s: {"total_weeks": 0, "versions": [], "updated_at": None} for s in domain_slugs}
     try:
         import pymongo
-        mongo_uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
+        mongo_uri = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:8627")
         mongo_db  = os.environ.get("MONGO_DB", "arxiv_trends")
         client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
         meta_col = client[mongo_db]["domain_meta"]
@@ -142,7 +142,7 @@ def _resolve_web_urls() -> list[str]:
             return [tunnel_url]
     except OSError:
         pass
-    port = os.environ.get("WEB_PORT", "8300")
+    port = os.environ.get("WEB_PORT", "8643")
     ips = _get_external_ips()
     if ips:
         return [f"http://{ip}:{port}" for ip in ips]
